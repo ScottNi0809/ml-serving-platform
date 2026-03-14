@@ -1,0 +1,45 @@
+# ── Build Stage ──────────────────────────────────────────
+
+FROM python:3.11-slim AS builder
+
+# 使用清华 APT 源（中国内地加速）
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources \
+    && sed -i 's|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# 使用清华 PyPI 源
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+    && pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
+
+COPY requirements.txt .
+RUN pip install --prefix=/install --no-cache-dir -r requirements.txt
+
+# ── Runtime Stage ────────────────────────────────────────
+
+FROM python:3.11-slim
+
+# 创建非 root 用户
+RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser
+
+COPY --from=builder /install /usr/local
+
+WORKDIR /app
+
+# 复制应用代码
+COPY registry/ ./registry/
+
+# 创建数据目录
+RUN mkdir -p /app/data /app/model_store \
+    && chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+
+CMD ["uvicorn", "registry.app:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,18 @@
+# Dev override — 开发模式覆盖配置
+# 使用: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+
+services:
+  registry:
+    build:
+      context: .
+      dockerfile: Dockerfile.registry
+    command: ["uvicorn", "registry.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      - APP_ENV=development
+      - API_KEY=dev-api-key
+    volumes:
+      - ./registry:/app/registry
+      - ./data:/app/data
+      - ./model_store:/app/model_store
+    ports:
+      - "8000:8000"

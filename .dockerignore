@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.git/
+.gitignore
+*.md
+tests/
+.pytest_cache/
+.env
+model_store/
+data/

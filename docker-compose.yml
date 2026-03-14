@@ -1,0 +1,41 @@
+services:
+  registry:
+    build:
+      context: .
+      dockerfile: Dockerfile.registry
+    container_name: ml-registry
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=production
+      - DATABASE_URL=sqlite:///./data/registry.db
+      - MODEL_STORE_PATH=./model_store
+      - API_KEY=your-api-key-here
+    volumes:
+      - registry-data:/app/data
+      - model-store:/app/model_store
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # serving:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.serving
+  #   container_name: ml-serving
+  #   ports:
+  #     - "8001:8001"
+  #   depends_on:
+  #     registry:
+  #       condition: service_healthy
+  #   # Phase 2: uncomment when worker is implemented
+
+volumes:
+  registry-data:
+    driver: local
+  model-store:
+    driver: local
