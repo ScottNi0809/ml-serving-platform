@@ -26,6 +26,7 @@ from fastapi.responses import JSONResponse
 from registry.database import create_tables, get_db
 from registry.exceptions import (
     DuplicateModelError,
+    DuplicateVersionError,
     ModelNotFoundError,
     ModelVersionNotFoundError,
 )
@@ -112,6 +113,14 @@ async def duplicate_model_handler(request: Request, exc: DuplicateModelError):
     return JSONResponse(
         status_code=409,
         content={"error": "duplicate_model", "message": str(exc)},
+    )
+
+
+@app.exception_handler(DuplicateVersionError)
+async def duplicate_version_handler(request: Request, exc: DuplicateVersionError):
+    return JSONResponse(
+        status_code=409,
+        content={"error": "duplicate_version", "message": str(exc)},
     )
 
 

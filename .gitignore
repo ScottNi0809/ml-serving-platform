@@ -49,3 +49,6 @@ coverage.xml
 
 # Logs
 *.log
+
+# Binary
+*.bin
