@@ -208,3 +208,88 @@ class TestVersionManagement:
         resp = client.post(f"/api/v1/models/{name}/versions", json={"version": "1.0.0"}, headers=HEADERS)
         # DuplicateVersionError — 应返回错误（409 or 500 depending on handler）
         assert resp.status_code >= 400
+
+
+# ============================================================
+# 文件操作
+# ============================================================
+
+class TestFileOperations:
+    """文件上传、下载、删除清理"""
+    
+    def _setup_model_with_version(self, client):
+        """创建一个模型和版本，返回 (name, version)"""
+        name = "file-ops-model"
+        ver = "1.0.0"
+        client.post("/api/v1/models", json={
+            "name": name, "framework": "pytorch",
+        }, headers=HEADERS)
+        client.post(f"/api/v1/models/{name}/versions", json={
+            "version": ver,
+        }, headers=HEADERS)
+        return name, ver
+
+    # TODO: 在下面实现 5 个测试方法
+    # 1. 上传文件
+    def test_upload_file(self, client):
+        name, ver = self._setup_model_with_version(client)
+        file_content = b"dummy model data"
+        files = {"file": ("model.bin", file_content)}
+        resp = client.post(f"/api/v1/models/{name}/versions/{ver}/upload", files=files, headers=HEADERS)
+        assert resp.status_code == 200
+
+    # 2. 下载文件
+    def test_download_file(self, client):
+        name, ver = self._setup_model_with_version(client)
+        file_content = b"dummy model data"
+        files = {"file": ("model.bin", file_content)}
+        client.post(f"/api/v1/models/{name}/versions/{ver}/upload", files=files, headers=HEADERS)
+
+        resp = client.get(f"/api/v1/models/{name}/versions/{ver}/download", headers=HEADERS)
+        assert resp.status_code == 200
+        assert resp.content == file_content
+
+    # 3. 删除文件
+    def test_delete_file(self, client):
+        name, ver = self._setup_model_with_version(client)
+        file_content = b"dummy model data"
+        files = {"file": ("model.bin", file_content)}
+        client.post(f"/api/v1/models/{name}/versions/{ver}/upload", files=files, headers=HEADERS)
+
+        resp = client.delete(f"/api/v1/models/{name}/versions/{ver}/file", headers=HEADERS)
+        assert resp.status_code == 204
+
+        # 确认文件已删除
+        resp = client.get(f"/api/v1/models/{name}/versions/{ver}/download", headers=HEADERS)
+        assert resp.status_code == 404  # 文件不存在
+
+    # 4. 清理文件
+    def test_cleanup_file(self, client):
+        name, ver = self._setup_model_with_version(client)
+        file_content = b"dummy model data"
+        files = {"file": ("model.bin", file_content)}
+        client.post(f"/api/v1/models/{name}/versions/{ver}/upload", files=files, headers=HEADERS)
+
+        # 调用清理接口
+        resp = client.post(f"/api/v1/models/{name}/versions/{ver}/cleanup", headers=HEADERS)
+        assert resp.status_code == 200
+
+        # 确认文件已删除
+        resp = client.get(f"/api/v1/models/{name}/versions/{ver}/download", headers=HEADERS)
+        assert resp.status_code == 404  # 文件不存在
+
+    # 5. 清理所有文件
+    def test_cleanup_all_files(self, client):
+        name, ver = self._setup_model_with_version(client)
+        file_content = b"dummy model data"
+        files = {"file": ("model.bin", file_content)}
+        client.post(f"/api/v1/models/{name}/versions/{ver}/upload", files=files, headers=HEADERS)
+
+        # 调用清理所有文件接口
+        resp = client.post("/api/v1/cleanup", headers=HEADERS)
+        assert resp.status_code == 200
+
+        # 确认文件已删除
+        resp = client.get(f"/api/v1/models/{name}/versions/{ver}/download", headers=HEADERS)
+        assert resp.status_code == 404  # 文件不存在
+

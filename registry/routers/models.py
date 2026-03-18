@@ -8,11 +8,14 @@
 """
 
 import json
+from marshal import version
 import uuid
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Path, Query, UploadFile
+from fastapi.responses import FileResponse
 
 from registry.database import get_db
 from registry.dependencies import get_current_user
@@ -203,6 +206,28 @@ async def update_model(
 
     # 返回更新后的模型
     return await get_model(model_name, user)
+
+
+@router.get("/{model_name}/versions/{version}/download")
+async def download_model_file(
+    model_name: str = Path(...),
+    version: str = Path(...),
+    user: dict = Depends(get_current_user)
+):
+    # 下载模型文件
+    with get_db() as conn:
+        row = conn.execute("SELECT file_path FROM model_versions WHERE model_name = ? AND version = ?", (model_name, version)).fetchone()
+        # 没找到记录”或者“找到但文件路径为空”
+        if not row or not row["file_path"]:
+            raise ModelVersionNotFoundError(model_name, version)
+
+        file_path = row["file_path"]
+
+        # 磁盘文件被意外删除
+        if not os.path.exists(file_path):
+            raise ModelVersionNotFoundError(model_name, version)
+
+    return FileResponse(file_path, media_type="application/octet-stream", filename=os.path.basename(file_path))
 
 
 @router.delete("/{model_name}", status_code=204)
