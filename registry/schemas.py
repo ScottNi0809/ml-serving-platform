@@ -49,10 +49,11 @@ class ModelCreate(BaseModel):
 
 class ModelVersionCreate(BaseModel):
     """创建模型版本时的请求体"""
-    version: str = Field(
-        ..., pattern=r"^\d+\.\d+\.\d+$",
+    version: Optional[str] = Field(
+        None, 
+        pattern=r"^\d+\.\d+\.\d+$",
         examples=["1.0.0"],
-        description="语义化版本号",
+        description="语义化版本号（留空自动递增PATCH）",
     )
     description: Optional[str] = None
 

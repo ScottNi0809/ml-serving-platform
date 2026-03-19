@@ -75,6 +75,35 @@ def _version_row_to_response(row) -> dict:
     }
 
 
+def _parse_version(version: str) -> tuple[int, int, int]:
+    """解析语义化版本号"""
+    try:
+        major, minor, patch = version.split(".")
+        return int(major), int(minor), int(patch)
+    except Exception:
+        raise ValueError(f"Invalid version format: {version}")
+
+
+def _next_version(conn, model_id: str) -> str:
+    """查询当前最高版本号，Patch + 1。无版本时返回 1.0.0"""
+    rows = conn.execute(
+        "SELECT version FROM model_versions WHERE model_id = ?",
+        (model_id,),
+    ).fetchall()
+
+    if not rows:
+        return "1.0.0"
+
+    try:
+        versions = [row["version"] for row in rows]
+        highest = max(versions, key=lambda v: _parse_version(v))
+        major, minor, patch = _parse_version(highest)
+        patch += 1
+        return f"{major}.{minor}.{patch}"
+    except ValueError:
+        return "1.0.0"
+
+
 # ============================================================
 # 模型 CRUD
 # ============================================================
@@ -270,6 +299,10 @@ async def create_version(
         model = conn.execute("SELECT id FROM models WHERE name = ?", (model_name,)).fetchone()
         if not model:
             raise ModelNotFoundError(model_name)
+        
+        # --- 新增：自动版本号 ---
+        if body.version is None:
+            body.version = _next_version(conn, model["id"])
 
         # 检查版本号是否已存在
         existing = conn.execute(
@@ -438,3 +471,118 @@ async def set_default_version(
         "created_at": target["created_at"],
         "is_default": True,
     }
+
+
+@router.delete("/{model_name}/versions/{version}/file", status_code=204)
+async def delete_version_file(
+    model_name: str = Path(...),
+    version: str = Path(...),
+    user: dict = Depends(get_current_user),
+):
+    """删除版本的模型文件，保留版本记录"""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT v.id, v.file_path FROM model_versions v
+               JOIN models m ON v.model_id = m.id
+               WHERE m.name = ? AND v.version = ?""",
+            (model_name, version),
+        ).fetchone()
+        if not row:
+            raise ModelVersionNotFoundError(model_name, version)
+
+        if row["file_path"]:
+            storage.delete(row["file_path"])
+            conn.execute(
+                "UPDATE model_versions SET file_path = NULL, status = 'registered' WHERE id = ?",
+                (row["id"],),
+            )
+
+
+@router.post("/{model_name}/versions/{version}/cleanup")
+async def cleanup_version_file(
+    model_name: str = Path(...),
+    version: str = Path(...),
+    user: dict = Depends(get_current_user),
+):
+    """清理指定版本的模型文件"""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT v.id, v.file_path
+            FROM model_versions v
+            JOIN models m ON v.model_id = m.id
+            WHERE m.name = ? AND v.version = ?""",
+            (model_name, version),
+        ).fetchone()
+        if not row:
+            raise ModelVersionNotFoundError(model_name, version)
+
+        if row["file_path"]:
+            storage.delete(row["file_path"])
+            conn.execute(
+                "UPDATE model_versions SET file_path = NULL, status = 'registered' WHERE id = ?",
+                (row["id"],),
+            )
+
+    return {"message": "cleanup completed"}
+
+
+@router.delete("/{model_name}/versions/{version}", status_code=204)
+async def delete_version(
+    model_name: str = Path(...),
+    version: str = Path(...),
+    user: dict = Depends(get_current_user)
+):
+    """删除指定版本"""
+    with get_db() as conn:
+        target = conn.execute(
+            """SELECT v.*, m.id AS model_id
+               FROM model_versions v
+               JOIN models m ON v.model_id = m.id
+               WHERE m.name = ? AND v.version = ?""",
+            (model_name, version),
+        ).fetchone()
+        if not target:
+            model = conn.execute("SELECT id FROM models WHERE name = ?", (model_name,)).fetchone()
+            if not model:
+                raise ModelNotFoundError(model_name)
+            raise ModelVersionNotFoundError(model_name, version)
+
+        # 删除存储的文件
+        if target["file_path"]:
+            storage.delete(target["file_path"])
+
+        conn.execute("DELETE FROM model_versions WHERE id = ?", (target["id"],))
+
+        # 如果删除的是默认版本，重新选择并同步新的默认版本
+        if target["is_default"]:
+            rows = conn.execute(
+                "SELECT version FROM model_versions WHERE model_id = ? ORDER BY created_at DESC",
+                (target["model_id"],),
+            ).fetchall()
+
+            if not rows:
+                conn.execute(
+                    "UPDATE models SET default_version = NULL WHERE id = ?",
+                    (target["model_id"],),
+                )
+            else:
+                versions = [row["version"] for row in rows]
+                try:
+                    new_default = max(versions, key=_parse_version)
+                except ValueError:
+                    # 版本号异常时，回退到最新创建版本
+                    new_default = versions[0]
+
+                conn.execute(
+                    "UPDATE model_versions SET is_default = 0 WHERE model_id = ?",
+                    (target["model_id"],),
+                )
+                conn.execute(
+                    "UPDATE model_versions SET is_default = 1 WHERE model_id = ? AND version = ?",
+                    (target["model_id"], new_default),
+                )
+                conn.execute(
+                    "UPDATE models SET default_version = ? WHERE id = ?",
+                    (new_default, target["model_id"]),
+                )
+    

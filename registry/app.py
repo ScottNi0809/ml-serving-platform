@@ -19,7 +19,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -129,6 +129,30 @@ async def duplicate_version_handler(request: Request, exc: DuplicateVersionError
 # ============================================================
 
 app.include_router(models.router)
+
+
+# ============================================================
+# 全局清理
+# ============================================================
+
+@app.post("/api/v1/cleanup", tags=["Cleanup"])
+async def cleanup_all_files(
+    user: dict = Depends(models.get_current_user),
+):
+    """清理所有版本的模型文件"""
+    from registry.database import get_db
+    from registry.storage import storage
+
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, file_path FROM model_versions WHERE file_path IS NOT NULL"
+        ).fetchall()
+        for row in rows:
+            storage.delete(row["file_path"])
+        conn.execute(
+            "UPDATE model_versions SET file_path = NULL, status = 'registered' WHERE file_path IS NOT NULL"
+        )
+    return {"message": f"cleanup completed, {len(rows)} files removed"}
 
 
 # ============================================================

@@ -293,3 +293,69 @@ class TestFileOperations:
         resp = client.get(f"/api/v1/models/{name}/versions/{ver}/download", headers=HEADERS)
         assert resp.status_code == 404  # 文件不存在
 
+
+# ============================================================
+# 版本管理进阶
+# ============================================================
+
+class TestVersionAdvanced:
+    """自动版本号 + 删除版本 + 默认回退"""
+
+    def _create_model(self, client, name = "adv-ver-model"):
+        resp = client.post("/api/v1/models", json={
+            "name": name,
+            "framework": "pytorch",
+        }, headers=HEADERS)
+        assert resp.status_code == 201
+        return name
+    
+    def test_auto_version_first(self, client):
+        """创建版本时不指定版本号，自动分配 1.0.0"""
+        name = self._create_model(client, "auto-ver-model-1")
+        resp = client.post(f"/api/v1/models/{name}/versions", json={}, headers=HEADERS)
+        assert resp.status_code == 201
+        assert resp.json()["version"] == "1.0.0"
+
+    def test_auto_version_increment(self, client):
+        """连续创建版本，自动递增版本号"""
+        name = self._create_model(client, "auto-ver-model-2")
+        client.post(f"/api/v1/models/{name}/versions", json={}, headers=HEADERS)
+        resp = client.post(f"/api/v1/models/{name}/versions", json={}, headers=HEADERS)
+        assert resp.status_code == 201
+        assert resp.json()["version"] == "1.0.1"
+
+    def test_auto_after_manual_version(self, client):
+        """在手动指定版本后，自动版本号继续递增"""
+        name = self._create_model(client, "auto-ver-model-3")
+        client.post(f"/api/v1/models/{name}/versions", json={"version": "2.0.0"}, headers=HEADERS)
+        resp = client.post(f"/api/v1/models/{name}/versions", json={}, headers=HEADERS)
+        assert resp.status_code == 201
+        assert resp.json()["version"] == "2.0.1"
+
+    def test_delete_non_default_version(self, client):
+        """删除非默认版本，版本列表减少，默认不变"""
+        name = self._create_model(client, "del-ver-model-1")
+        client.post(f"/api/v1/models/{name}/versions", json={"version": "1.0.0"}, headers=HEADERS)
+        client.post(f"/api/v1/models/{name}/versions", json={"version": "2.0.0"}, headers=HEADERS)
+
+        resp = client.delete(f"/api/v1/models/{name}/versions/2.0.0", headers=HEADERS)
+        assert resp.status_code == 204
+
+        # 确认版本列表
+        resp = client.get(f"/api/v1/models/{name}/versions", headers=HEADERS)
+        assert len(resp.json()) == 1
+        assert resp.json()[0]["version"] == "1.0.0"
+
+    def test_delete_default_version_falls_back(self, client):
+        """删除默认版本后，另一个版本成为新默认"""
+        name = self._create_model(client, "del-ver-model-2")
+        client.post(f"/api/v1/models/{name}/versions", json={"version": "1.0.0"}, headers=HEADERS)
+        client.post(f"/api/v1/models/{name}/versions", json={"version": "2.0.0"}, headers=HEADERS)
+
+        # 删除默认版本 1.0.0
+        resp = client.delete(f"/api/v1/models/{name}/versions/1.0.0", headers=HEADERS)
+        assert resp.status_code == 204
+
+        # 确认 2.0.0 成为新默认
+        resp = client.get(f"/api/v1/models/{name}", headers=HEADERS)
+        assert resp.json()["default_version"] == "2.0.0"
