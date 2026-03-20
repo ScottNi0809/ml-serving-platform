@@ -15,7 +15,9 @@ import sqlite3
 from contextlib import contextmanager
 from typing import Optional
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./data/registry.db")
+from registry.config import settings
+
+DATABASE_URL = settings.database_url
 
 # 从 URL 中提取文件路径
 _db_path = DATABASE_URL.replace("sqlite:///", "")

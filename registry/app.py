@@ -141,14 +141,15 @@ async def cleanup_all_files(
 ):
     """清理所有版本的模型文件"""
     from registry.database import get_db
-    from registry.storage import storage
+    from registry.dependencies import get_storage
 
+    store = get_storage()
     with get_db() as conn:
         rows = conn.execute(
             "SELECT id, file_path FROM model_versions WHERE file_path IS NOT NULL"
         ).fetchall()
         for row in rows:
-            storage.delete(row["file_path"])
+            store.delete(row["file_path"])
         conn.execute(
             "UPDATE model_versions SET file_path = NULL, status = 'registered' WHERE file_path IS NOT NULL"
         )

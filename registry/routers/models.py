@@ -8,7 +8,6 @@
 """
 
 import json
-from marshal import version
 import uuid
 import os
 from datetime import datetime, timezone
@@ -19,6 +18,7 @@ from fastapi.responses import FileResponse
 
 from registry.database import get_db
 from registry.dependencies import get_current_user
+from registry.storage import BaseStorage
 from registry.exceptions import (
     DuplicateModelError,
     DuplicateVersionError,
@@ -35,7 +35,7 @@ from registry.schemas import (
     ModelVersionCreate,
     ModelVersionResponse,
 )
-from registry.storage import storage
+from registry.dependencies import get_storage
 
 router = APIRouter(
     prefix="/api/v1/models",
@@ -263,6 +263,7 @@ async def download_model_file(
 async def delete_model(
     model_name: str = Path(..., description="模型名称"),
     user: dict = Depends(get_current_user),
+    store: BaseStorage = Depends(get_storage),
 ):
     """删除模型（级联删除所有版本和文件）"""
     with get_db() as conn:
@@ -276,7 +277,7 @@ async def delete_model(
         ).fetchall()
         for v in versions:
             if v["file_path"]:
-                storage.delete(v["file_path"])
+                store.delete(v["file_path"])
 
         conn.execute("DELETE FROM models WHERE id = ?", (row["id"],))
 
@@ -389,6 +390,7 @@ async def upload_model_file(
     version: str = Path(...),
     file: UploadFile = File(..., description="模型权重文件"),
     user: dict = Depends(get_current_user),
+    store: BaseStorage = Depends(get_storage),
 ):
     """为指定版本上传模型文件"""
     with get_db() as conn:
@@ -403,7 +405,7 @@ async def upload_model_file(
             raise ModelVersionNotFoundError(model_name, version)
 
         # 保存文件
-        file_path = storage.save(model_name, version, file.file, file.filename)
+        file_path = store.save(model_name, version, file.file, file.filename)
 
         # 更新数据库
         conn.execute(
@@ -478,6 +480,7 @@ async def delete_version_file(
     model_name: str = Path(...),
     version: str = Path(...),
     user: dict = Depends(get_current_user),
+    store: BaseStorage = Depends(get_storage),
 ):
     """删除版本的模型文件，保留版本记录"""
     with get_db() as conn:
@@ -491,7 +494,7 @@ async def delete_version_file(
             raise ModelVersionNotFoundError(model_name, version)
 
         if row["file_path"]:
-            storage.delete(row["file_path"])
+            store.delete(row["file_path"])
             conn.execute(
                 "UPDATE model_versions SET file_path = NULL, status = 'registered' WHERE id = ?",
                 (row["id"],),
@@ -503,6 +506,7 @@ async def cleanup_version_file(
     model_name: str = Path(...),
     version: str = Path(...),
     user: dict = Depends(get_current_user),
+    store: BaseStorage = Depends(get_storage),
 ):
     """清理指定版本的模型文件"""
     with get_db() as conn:
@@ -517,7 +521,7 @@ async def cleanup_version_file(
             raise ModelVersionNotFoundError(model_name, version)
 
         if row["file_path"]:
-            storage.delete(row["file_path"])
+            store.delete(row["file_path"])
             conn.execute(
                 "UPDATE model_versions SET file_path = NULL, status = 'registered' WHERE id = ?",
                 (row["id"],),
@@ -530,7 +534,8 @@ async def cleanup_version_file(
 async def delete_version(
     model_name: str = Path(...),
     version: str = Path(...),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
+    store: BaseStorage = Depends(get_storage),
 ):
     """删除指定版本"""
     with get_db() as conn:
@@ -549,7 +554,7 @@ async def delete_version(
 
         # 删除存储的文件
         if target["file_path"]:
-            storage.delete(target["file_path"])
+            store.delete(target["file_path"])
 
         conn.execute("DELETE FROM model_versions WHERE id = ?", (target["id"],))
 

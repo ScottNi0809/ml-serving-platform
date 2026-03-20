@@ -6,13 +6,14 @@
 后续可扩展 S3Storage 等实现。
 """
 
-import os
 import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import BinaryIO
 
-MODEL_STORE_PATH = os.environ.get("MODEL_STORE_PATH", "./model_store")
+from registry.config import settings
+
+MODEL_STORE_PATH = settings.model_store_path
 
 
 class BaseStorage(ABC):
@@ -72,5 +73,34 @@ class LocalStorage(BaseStorage):
         return Path(path).exists()
 
 
-# 默认存储实例
-storage = LocalStorage()
+class S3Storage(BaseStorage):
+    """S3存储实现（待实现）"""
+
+    def __init__(self, bucket_name: str, prefix: str = "models/", **kwargs):
+        # 这里可以初始化boto3客户端
+        self.bucket_name = bucket_name
+        self.prefix = prefix
+        # todo: 初始化 boto3 客户端 
+        pass
+
+    def save(self, model_name: str, version: str, file: BinaryIO, filename: str) -> str:
+        raise NotImplementedError("S3Storage.save not implemented")
+
+    def load(self, path: str) -> bytes:
+        raise NotImplementedError("S3Storage.load not implemented")
+
+    def delete(self, path: str) -> None:
+        raise NotImplementedError("S3Storage.delete not implemented")
+
+    def exists(self, path: str) -> bool:
+        raise NotImplementedError("S3Storage.exists not implemented")
+
+
+def create_storage(backend: str = "local", **kwargs) -> BaseStorage:
+    """根据配置创建存储实例"""
+    if backend == "local":
+        return LocalStorage(**kwargs)
+    elif backend == "s3":
+        return S3Storage(**kwargs)
+    else:
+        raise ValueError(f"Unsupported storage backend: {backend}")
