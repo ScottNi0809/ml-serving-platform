@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 并发控制：同一分支有新 push 时，自动取消正在运行的旧 workflow
+concurrency:
+  group: ci-${{ github.ref }}        # 按分支分组
+  cancel-in-progress: true           # 取消同组中正在进行的运行
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10              # 防止测试卡死，最多跑 10 分钟
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      
+      - name: Run tests
+        run: |
+          pytest tests/ -v --tb=short
+
+  # 可选：验证 Docker 构建
+  docker-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15              # Docker 构建可能较慢，给 15 分钟
+    needs: test  # 测试通过后才构建
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build Docker image
+        run: |
+          docker build -f Dockerfile.registry -t ml-registry:ci .
