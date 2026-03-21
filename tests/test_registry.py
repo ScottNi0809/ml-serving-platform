@@ -60,6 +60,17 @@ def created_model(client, sample_model):
     return resp.json()
 
 
+@pytest.fixture(autouse=True)
+def override_storage(tmp_path):
+    """用 dependency_overrides 把 storage 指向临时目录"""
+    from registry.dependencies import get_storage
+    from registry.storage import LocalStorage
+    
+    test_storage = LocalStorage(base_path=str(tmp_path / "test_store"))
+    app.dependency_overrides[get_storage] = lambda: test_storage
+    yield
+    app.dependency_overrides.clear()
+
 # ============================================================
 # 健康检查
 # ============================================================
