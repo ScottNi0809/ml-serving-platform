@@ -22,17 +22,16 @@ services:
       retries: 3
       start_period: 10s
 
-  # serving:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile.serving
-  #   container_name: ml-serving
-  #   ports:
-  #     - "8001:8001"
-  #   depends_on:
-  #     registry:
-  #       condition: service_healthy
-  #   # Phase 2: uncomment when worker is implemented
+  serving:
+    build:
+      context: .
+      dockerfile: Dockerfile.serving
+    container_name: ml-serving
+    ports:
+      - "8001:8001"
+    depends_on:
+      registry:
+        condition: service_healthy
 
 volumes:
   registry-data:

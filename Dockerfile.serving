@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 使用清华 PyPI 源
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 安装 serving 额外依赖
+RUN pip install --no-cache-dir scikit-learn joblib numpy
+
+COPY serving/ ./serving/
+
+EXPOSE 8001
+
+CMD ["uvicorn", "serving.app:app", "--host", "0.0.0.0", "--port", "8001"]
