@@ -5,6 +5,8 @@ Gateway — 请求路由层
 维护「模型:版本 → Worker URL」路由表，
 接收推理请求并异步转发给对应 Worker。
 """
+import random
+
 import httpx
 from typing import Optional
 
@@ -15,6 +17,8 @@ class GatewayRouter:
     def __init__(self):
         # key: "model_name:version" → value: worker_url
         self._routes: dict[str, str] = {}
+        # key: A/B 路由：key: "model_name" → value: [{"version", "worker_url", "weight"}]
+        self._ab_routes: dict[str, list[dict]] = {}
         self._client = httpx.AsyncClient(timeout=30.0)
 
     def _key(self, model_name: str, version: str) -> str:
@@ -80,6 +84,102 @@ class GatewayRouter:
         )
         response.raise_for_status()
         return response.json()
+    
+    def set_ab_route(
+            self, model_name: str, backends: list[dict]
+    ) -> dict:
+        """
+        设置 A/B 路由配置。
+        backends 格式：[{"version": "1", "worker_url": "...", "weight": 90}, ...]
+        """
+        self._ab_routes[model_name] = backends
+        total_weight = sum(b['weight'] for b in backends)
+        return {
+            "status": "ab_route_set",
+            "model_name": model_name,
+            "backends": backends,
+            "total_weight": total_weight,
+        }
+    
+    def remove_ab_route(self, model_name: str) -> dict:
+        """移除某个模型的 A/B 路由配置"""
+        if model_name not in self._ab_routes:
+            return {"status": "not_found", "model_name": model_name}
+        del self._ab_routes[model_name]
+        return {"status": "ab_route_removed", "model_name": model_name}
+
+    def get_ab_route(self, model_name: str) -> Optional[list[dict]]:
+        """查询 A/B 路由配置"""
+        return self._ab_routes.get(model_name)
+    
+    def list_ab_routes(self) -> list[dict]:
+        """列出所有 A/B 路由配置"""
+        return {
+            name: {
+                "backends": backends,
+                "total_weight": sum(b["weight"] for b in backends),
+            }
+            for name, backends in self._ab_routes.items()
+        }
+    
+    def _weighted_select(self, backends: list[dict]) -> dict:
+        """
+        加权随机选择一个后端。
+        
+        算法：累加权重，生成 [0, total) 的随机数，
+        落在哪个区间就选哪个后端。
+        """
+        total = sum(b["weight"] for b in backends)
+        r = random.uniform(0, total)
+        cumulative = 0
+        for backend in backends:
+            cumulative += backend["weight"]
+            if r < cumulative:
+                return backend
+        return backends[-1]  # 理论上不会到这行，但加个兜底
+
+    async def forward_predict_ab(
+        self, model_name: str, inputs: list[list[float]]
+    ) -> dict:
+        """
+        A/B 路由转发。
+        
+        1. 查 A/B 路由表找到后端列表
+        2. 按权重随机选择一个后端
+        3. 转发推理请求
+        4. 在响应中附带路由信息（方便调试和统计）
+        """
+        backends = self.get_ab_route(model_name)
+        if not backends:
+            raise KeyError(f"No A/B route configured for {model_name}")
+
+        # 过滤掉权重为 0 的后端
+        active_backends = [b for b in backends if b["weight"] > 0]
+        if not active_backends:
+            raise KeyError(f"All backends for '{model_name}' have zero weight")
+        
+        selected = self._weighted_select(active_backends)
+        version = selected["version"]
+        worker_url = selected["worker_url"]
+
+        predict_url = (
+            f"{worker_url}/api/v1/models/{model_name}"
+            f"/versions/{version}/predict"
+        )
+
+        response = await self._client.post(
+            predict_url, json={"inputs": inputs}
+        )
+        response.raise_for_status()
+
+        result = response.json()
+        # 附带路由元信息，方便调试
+        result["_routed_to"] = {
+            "version": version,
+            "worker_url": worker_url,
+            "weight": selected["weight"],
+        }
+        return result
 
     async def check_worker_health(self, worker_url: str) -> bool:
         """检查 Worker 是否存活"""

@@ -28,3 +28,29 @@ class GatewayPredictRequest(BaseModel):
         description="输入特征矩阵",
         examples=[[[5.1, 3.5, 1.4, 0.2]]],
     )
+
+
+class WeightedBackend(BaseModel):
+    """A/B 路由中的一个后端"""
+    version: str = Field(..., description="模型版本")
+    worker_url: str = Field(..., description="Worker 地址")
+    weight: int = Field(
+        ..., ge=0, le=100,
+        description="流量权重（相对值，所有后端权重之和不要求等于 100）",
+    )
+
+
+class ABRouteConfig(BaseModel):
+    """A/B 路由配置请求"""
+    model_name: str = Field(..., description="模型名称")
+    backends: list[WeightedBackend] = Field(
+        ..., min_length=1,
+        description="后端列表，至少一个",
+    )
+
+
+class ABRouteInfo(BaseModel):
+    """A/B 路由信息（响应）"""
+    model_name: str
+    backends: list[WeightedBackend]
+    total_weight: int

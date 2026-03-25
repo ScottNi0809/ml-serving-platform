@@ -15,6 +15,7 @@ from serving.gateway import GatewayRouter
 from serving.gateway_schemas import (
     GatewayPredictRequest,
     WorkerRegistration,
+    ABRouteConfig,
 )
 
 # 全局 Gateway Router 实例
@@ -136,3 +137,81 @@ async def check_worker_health(
         "worker_url": worker_url,
         "healthy": healthy,
     }
+
+
+# ─────────────── A/B 路由配置 ───────────────────
+
+@app.post("/api/v1/gateway/ab/configure")
+async def configure_ab_route(body: ABRouteConfig):
+    """
+    设置模型的 A/B 路由配置。
+    
+    示例：iris-classifier 的流量 90% 走 v1，10% 走 v2
+    """
+    backends = [b.model_dump() for b in body.backends]
+    result = router.set_ab_route(
+        model_name=body.model_name,
+        backends=backends,
+    )
+    return result
+
+@app.delete("/api/v1/gateway/ab/{model_name}")
+async def delete_ab_route(model_name: str = Path(...)):
+    """删除模型的 A/B 路由配置"""
+    result = router.remove_ab_route(model_name)
+    if result["status"] == "not_found":
+        raise HTTPException(
+            status_code=404, 
+            detail=f"A/B route not found: {model_name}"
+        )
+    return result
+
+@app.get("/api/v1/gateway/ab")
+async def list_ab_routes():
+    """列出所有 A/B 路由配置"""
+    routes = router.list_ab_routes()
+    return {"ab_routes": routes}
+
+@app.get("/api/v1/gateway/ab/{model_name}")
+async def get_ab_route(model_name: str = Path(...)):
+    """获取指定模型的 A/B 路由配置"""
+    backends = router.get_ab_route(model_name)
+    if backends is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No A/B route for model: {model_name}",
+        )
+    return {
+        "model_name": model_name,
+        "backends": backends,
+        "total_weight": sum(b["weight"] for b in backends),
+    }
+
+@app.post("/api/v1/gateway/ab/predict/{model_name}")
+async def ab_predict(
+    body: GatewayPredictRequest,
+    model_name: str = Path(...),
+):
+    """
+    A/B 路由推理入口。
+    
+    客户端只需指定模型名，不需要指定版本。
+    Gateway 根据配置的权重自动选择版本并转发。
+    
+    响应中的 _routed_to 字段告诉你请求实际发到了哪个版本。
+    """
+    try:
+        result = await router.forward_predict_ab(
+            model_name=model_name,
+            inputs=body.inputs,
+        )
+        return result
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to forward request: {e}",
+        )
