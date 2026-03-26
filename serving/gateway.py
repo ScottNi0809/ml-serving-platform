@@ -19,6 +19,7 @@ class GatewayRouter:
         self._routes: dict[str, str] = {}
         # key: A/B 路由：key: "model_name" → value: [{"version", "worker_url", "weight"}]
         self._ab_routes: dict[str, list[dict]] = {}
+        self._rollback_history: list[dict] = []  # 用于回滚的历史记录
         self._client = httpx.AsyncClient(timeout=30.0)
 
     def _key(self, model_name: str, version: str) -> str:
@@ -107,6 +108,68 @@ class GatewayRouter:
             return {"status": "not_found", "model_name": model_name}
         del self._ab_routes[model_name]
         return {"status": "ab_route_removed", "model_name": model_name}
+    
+    def rollback_ab_route(self, model_name: str, target_version: str, reason: str = "") -> dict:
+        """
+        一键回滚：将指定模型的全部流量切换到 target_version。
+
+        逻辑：
+        1. 查找 A/B 配置中是否存在 target_version
+        2. 将 target_version 的权重设为 100，其他版本归零
+        3. 记录到 _rollback_history
+        """
+        backends = self._ab_routes.get(model_name)
+        if not backends:
+            return {"status": "not_found", "model_name": model_name}
+        
+        # 检查target version是否在配置中
+        version_exists = any(b['version'] == target_version for b in backends)
+        if not version_exists:
+            return {
+                "status": "version_not_found",
+                "model_name": model_name,
+                "target_version": target_version,
+                "available_versions": [b["version"] for b in backends]
+            }
+        
+        # 记录回滚前的快照
+        snapshot_before = [
+            {"version": b["version"], "weight": b["weight"]}
+            for b in backends
+        ]
+
+        # 执行回滚：目标版本100，其他归零
+        for b in backends:
+            b["weight"] = 100 if b["version"] == target_version else 0
+
+        # 记录回滚历史
+        from datetime import datetime, timezone
+        record = {
+            "model_name": model_name,
+            "target_version": target_version,
+            "reason": reason,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "before": snapshot_before,
+            "after": [
+                {"version": b["version"], "weight": b["weight"]}
+                for b in backends
+            ]
+        }
+        self._rollback_history.append(record)
+
+        return {
+            "status": "rolled_back",
+            "model_name": model_name,
+            "target_version": target_version,
+            "before": snapshot_before,
+            "after": record["after"],
+        }
+
+    def get_rollback_history(self, model_name: str | None = None) -> list[dict]:
+        """获取回滚历史，可选按模型名过滤"""
+        if model_name:
+            return [r for r in self._rollback_history if r["model_name"] == model_name]
+        return list(self._rollback_history)
 
     def get_ab_route(self, model_name: str) -> Optional[list[dict]]:
         """查询 A/B 路由配置"""

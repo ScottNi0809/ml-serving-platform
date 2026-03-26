@@ -54,3 +54,9 @@ class ABRouteInfo(BaseModel):
     model_name: str
     backends: list[WeightedBackend]
     total_weight: int
+
+
+class RollbackRequest(BaseModel):
+    """回滚请求"""
+    target_version: str = Field(..., description="要回滚到的目标版本")
+    reason: str = Field("", description="回滚原因（可选，用于审计追溯）")

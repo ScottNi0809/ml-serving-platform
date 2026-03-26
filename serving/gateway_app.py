@@ -16,6 +16,7 @@ from serving.gateway_schemas import (
     GatewayPredictRequest,
     WorkerRegistration,
     ABRouteConfig,
+    RollbackRequest,
 )
 
 # 全局 Gateway Router 实例
@@ -186,6 +187,37 @@ async def get_ab_route(model_name: str = Path(...)):
         "backends": backends,
         "total_weight": sum(b["weight"] for b in backends),
     }
+
+@app.post("/api/v1/gateway/ab/rollback/{model_name}")
+async def rollback_ab_route(
+    body: RollbackRequest,
+    model_name: str = Path(...),
+):
+    """
+    一键回滚：将指定模型的全部流量切到目标版本。
+
+    其他版本的权重自动归零，回滚操作记录到历史中。
+    """
+    result = router.rollback_ab_route(
+        model_name = model_name,
+        target_version = body.target_version,
+        reason = body.reason,
+    )
+    if result["status"] == "not_found":
+        raise HTTPException(status_code=404, detail=f"No A/B route: {model_name}")
+    if result["status"] == "version_not_found":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Version '{body.target_version}' not in A/B config. "
+                   f"Available: {result['available_versions']}",
+        )
+    return result
+
+@app.get("/api/v1/gateway/ab/rollback-history/{model_name}")
+async def get_rollback_history(model_name: str = Path(...)):
+    """查看指定模型的回滚历史"""
+    history = router.get_rollback_history(model_name)
+    return {"model_name": model_name, "history": history}
 
 @app.post("/api/v1/gateway/ab/predict/{model_name}")
 async def ab_predict(

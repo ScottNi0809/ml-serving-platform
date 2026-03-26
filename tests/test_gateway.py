@@ -9,8 +9,12 @@ from serving.gateway_app import app, router
 def clean_routes():
     """每个测试前清空路由表"""
     router._routes.clear()
+    router._ab_routes.clear()
+    router._rollback_history.clear()
     yield
     router._routes.clear()
+    router._ab_routes.clear()
+    router._rollback_history.clear()
 
 
 @pytest.mark.anyio
@@ -210,3 +214,149 @@ def test_weighted_select_distribution():
     # 90% ± 3% 的容差（10000 次足够收敛）
     ratio_v1 = counts["1"] / n
     assert 0.87 < ratio_v1 < 0.93, f"v1 ratio = {ratio_v1}, expected ~0.90"
+
+
+# ───────────────── 回滚测试 ──────────────────────
+
+@pytest.mark.anyio
+async def test_rollback_switches_all_traffic():
+    """回滚后，目标版本权重=100，其他版本=0"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # 先配置 A/B 路由：50/50
+        await ac.post("/api/v1/gateway/ab/configure", json={
+            "model_name": "iris",
+            "backends": [
+                {"version": "1", "worker_url": "http://localhost:9001", "weight": 50},
+                {"version": "2", "worker_url": "http://localhost:9002", "weight": 50},
+            ],
+        })
+
+        # 回滚到 v1
+        resp = await ac.post("/api/v1/gateway/ab/rollback/iris", json={
+            "target_version": "1",
+            "reason": "v2 accuracy dropped",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "rolled_back"
+        assert data["target_version"] == "1"
+
+        # 验证 A/B 配置已更新
+        resp = await ac.get("/api/v1/gateway/ab/iris")
+        backends = resp.json()["backends"]
+        weights = {b["version"]: b["weight"] for b in backends}
+        assert weights["1"] == 100
+        assert weights["2"] == 0
+
+
+@pytest.mark.anyio
+async def test_rollback_no_config_returns_404():
+    """没有 A/B 配置时回滚返回 404"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.post("/api/v1/gateway/ab/rollback/nonexistent", json={
+            "target_version": "1",
+        })
+        assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_rollback_invalid_version_returns_400():
+    """回滚到不存在的版本返回 400"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await ac.post("/api/v1/gateway/ab/configure", json={
+            "model_name": "iris",
+            "backends": [
+                {"version": "1", "worker_url": "http://localhost:9001", "weight": 100},
+            ],
+        })
+
+        resp = await ac.post("/api/v1/gateway/ab/rollback/iris", json={
+            "target_version": "99",
+        })
+        assert resp.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_rollback_history():
+    """回滚后能查到历史记录"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # 配置
+        await ac.post("/api/v1/gateway/ab/configure", json={
+            "model_name": "iris",
+            "backends": [
+                {"version": "1", "worker_url": "http://localhost:9001", "weight": 90},
+                {"version": "2", "worker_url": "http://localhost:9002", "weight": 10},
+            ],
+        })
+
+        # 回滚
+        await ac.post("/api/v1/gateway/ab/rollback/iris", json={
+            "target_version": "1",
+            "reason": "emergency rollback",
+        })
+
+        # 查历史
+        resp = await ac.get("/api/v1/gateway/ab/rollback-history/iris")
+        assert resp.status_code == 200
+        history = resp.json()["history"]
+        assert len(history) == 1
+        assert history[0]["target_version"] == "1"
+        assert history[0]["reason"] == "emergency rollback"
+        assert "timestamp" in history[0]
+
+
+@pytest.mark.anyio
+async def test_full_version_upgrade_workflow():
+    """
+    端到端版本升级工作流：
+    1. 全量 v1 → 2. 灰度 v1:90/v2:10 → 3. 切量 v1:0/v2:100 → 4. 回滚到 v1
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # ① 全量 v1
+        await ac.post("/api/v1/gateway/ab/configure", json={
+            "model_name": "iris",
+            "backends": [
+                {"version": "1", "worker_url": "http://localhost:9001", "weight": 100},
+                {"version": "2", "worker_url": "http://localhost:9002", "weight": 0},
+            ],
+        })
+        resp = await ac.get("/api/v1/gateway/ab/iris")
+        assert resp.json()["backends"][0]["weight"] == 100
+
+        # ② 灰度：v1:90, v2:10
+        await ac.post("/api/v1/gateway/ab/configure", json={
+            "model_name": "iris",
+            "backends": [
+                {"version": "1", "worker_url": "http://localhost:9001", "weight": 90},
+                {"version": "2", "worker_url": "http://localhost:9002", "weight": 10},
+            ],
+        })
+
+        # ③ 切量：全切 v2
+        await ac.post("/api/v1/gateway/ab/rollback/iris", json={
+            "target_version": "2",
+            "reason": "v2 validated, full rollout",
+        })
+        resp = await ac.get("/api/v1/gateway/ab/iris")
+        weights = {b["version"]: b["weight"] for b in resp.json()["backends"]}
+        assert weights["1"] == 0
+        assert weights["2"] == 100
+
+        # ④ 紧急回滚到 v1
+        await ac.post("/api/v1/gateway/ab/rollback/iris", json={
+            "target_version": "1",
+            "reason": "v2 has latency spike",
+        })
+        resp = await ac.get("/api/v1/gateway/ab/iris")
+        weights = {b["version"]: b["weight"] for b in resp.json()["backends"]}
+        assert weights["1"] == 100
+        assert weights["2"] == 0
+
+        # 确认两条回滚历史
+        resp = await ac.get("/api/v1/gateway/ab/rollback-history/iris")
+        assert len(resp.json()["history"]) == 2
