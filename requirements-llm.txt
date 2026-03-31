@@ -1,0 +1,6 @@
+-r requirements.txt
+
+# LLM inference stack (install in Linux/WSL2 with NVIDIA GPU)
+vllm
+openai
+huggingface_hub==0.25.2
