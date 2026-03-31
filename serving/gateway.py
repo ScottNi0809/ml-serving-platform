@@ -253,7 +253,32 @@ class GatewayRouter:
             return response.status_code == 200
         except (httpx.RequestError, httpx.HTTPStatusError):
             return False
+        
+    async def forward_chat(
+        self, model_name: str, version: str, payload: dict
+    ) -> dict:
+        """
+        转发 LLM Chat 请求到 LLM Worker。
 
+        与 forward_predict 类似，但目标 URL 和请求格式不同：
+        - ML Worker:  POST {worker_url}/api/v1/models/{name}/versions/{ver}/predict
+        - LLM Worker: POST {worker_url}/api/v1/chat/completions
+
+        Args:
+            model_name: 模型名（路由查找用）
+            version: 版本号
+            payload: Chat 请求体 {"messages": [...], "max_tokens": ..., ...}
+        """
+        worker_url = self.get_worker_url(model_name, version)
+        if not worker_url:
+            raise KeyError(f"No worker registered for {model_name}:{version}")
+
+        chat_url = f"{worker_url}/api/v1/chat/completions"
+
+        response = await self._client.post(chat_url, json=payload)
+        response.raise_for_status()
+        return response.json()
+        
     async def close(self):
         """关闭 HTTP 客户端"""
         await self._client.aclose()

@@ -17,6 +17,7 @@ from serving.gateway_schemas import (
     WorkerRegistration,
     ABRouteConfig,
     RollbackRequest,
+    GatewayChatRequest,
 )
 
 # 全局 Gateway Router 实例
@@ -110,6 +111,37 @@ async def gateway_predict(
             status_code=404,
             detail=str(e),
         )
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to forward request to worker: {e}",
+        )
+
+
+# ── LLM Chat 入口 ───────────────────────────────────────────
+
+@app.post("/api/v1/gateway/chat/{model_name}/{version}")
+async def gateway_chat(
+    body: GatewayChatRequest,
+    model_name: str = Path(...),
+    version: str = Path(...),
+):
+    """
+    LLM 推理入口 — Gateway 的 Chat API。
+
+    和 predict 入口的设计一致：
+    客户端只需知道模型名和版本，不需要知道 LLM Worker 地址。
+    Gateway 查路由表 → 转发给对应的 LLM Worker → 返回结果。
+    """
+    try:
+        result = await router.forward_chat(
+            model_name = model_name,
+            version = version,
+            payload = body.model_dump(),
+        )
+        return result
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(
             status_code=502,

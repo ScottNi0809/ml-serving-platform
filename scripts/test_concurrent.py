@@ -7,7 +7,7 @@ from openai import AsyncOpenAI
 from pathlib import Path
 
 client = AsyncOpenAI(
-    base_url="http://localhost:8000/v1",
+    base_url="http://localhost:8100/v1",
     api_key="not-needed"
 )
 

@@ -6,7 +6,7 @@ from openai import OpenAI
 
 # 创建客户端 —— 唯一的区别是 base_url 指向本地 vLLM
 client = OpenAI(
-    base_url="http://localhost:8000/v1",
+    base_url="http://localhost:8100/v1",
     api_key="not-needed"  # vLLM 本地不需要真正的 API key
 )
 
