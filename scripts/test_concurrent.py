@@ -4,19 +4,43 @@
 import time
 import asyncio
 from openai import AsyncOpenAI
+from pathlib import Path
 
 client = AsyncOpenAI(
     base_url="http://localhost:8000/v1",
     api_key="not-needed"
 )
 
-MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
+base_dir = Path(__file__).resolve().parent  # tests/
+model_dir = base_dir.parent / "model_store" / "Qwen2.5-1.5B-Instruct"
+print(model_dir)
 
-async def send_request(request_id: int, prompt: str, max_tokens: int):
+# NOTE: 服务器 model 名称需要与当前可用模型一致。
+# 本脚本会自动查询 vLLM /v1/models 并选第一个可用 model id。
+MODEL = None
+
+async def resolve_model():
+    """从 vLLM /v1/models 获取可用 model_id（首个），为后续 API 调用提供模型名。"""
+    global MODEL
+    try:
+        resp = await client.models.list()
+        if resp.data:
+            MODEL = resp.data[0].id
+            print(f"选择模型: {MODEL}")
+            return MODEL
+    except Exception as e:
+        print(f"无法通过 client.models.list() 获取模型列表，原因：{e}")
+
+    # 回退设置（一般无效，除非 vLLM 直接支持此名称）
+    MODEL = model_dir.name
+    print(f"回退模型：{MODEL}")
+    return MODEL
+
+async def send_request(request_id: int, prompt: str, max_tokens: int, model: str):
     """发送单个请求并记录时间"""
     start = time.perf_counter()
     response = await client.chat.completions.create(
-        model=MODEL,
+        model=model,
         messages=[{"role": "user", "content": prompt}],
         max_tokens=max_tokens,
         temperature=0.7,
@@ -32,8 +56,11 @@ async def send_request(request_id: int, prompt: str, max_tokens: int):
     
     return {"id": request_id, "time": total_time, "tokens": output_tokens}
 
-async def run_concurrent_test(num_requests: int, max_tokens: int = 100):
+async def run_concurrent_test(num_requests: int, max_tokens: int = 100, model: str | None = None):
     """并发发送多个请求"""
+    if model is None:
+        raise ValueError("必须传入 model 参数")
+
     prompts = [
         "用一句话解释什么是Docker。",
         "Python和C++的主要区别是什么？",
@@ -45,11 +72,11 @@ async def run_concurrent_test(num_requests: int, max_tokens: int = 100):
         "如何优化数据库查询性能？",
     ]
     
-    print(f"\n发送 {num_requests} 个并发请求（max_tokens={max_tokens}）...")
+    print(f"\n发送 {num_requests} 个并发请求（max_tokens={max_tokens}，model={model}）...")
     
     start = time.perf_counter()
     tasks = [
-        send_request(i, prompts[i % len(prompts)], max_tokens) 
+        send_request(i, prompts[i % len(prompts)], max_tokens, model)
         for i in range(num_requests)
     ]
     results = await asyncio.gather(*tasks)
@@ -67,17 +94,19 @@ async def run_concurrent_test(num_requests: int, max_tokens: int = 100):
     print(f"  QPS: {num_requests/total_time:.2f}")
 
 async def main():
+    model = await resolve_model()
+
     # 先测单个请求作为基线
     print("=" * 60)
     print("基线：单个请求")
     print("=" * 60)
-    await run_concurrent_test(1, max_tokens=100)
+    await run_concurrent_test(1, max_tokens=100, model=model)
     
     # 逐步增加并发
     for n in [2, 4, 8]:
         print(f"\n{'=' * 60}")
         print(f"并发数: {n}")
         print(f"{'=' * 60}")
-        await run_concurrent_test(n, max_tokens=100)
+        await run_concurrent_test(n, max_tokens=100, model=model)
 
 asyncio.run(main())
