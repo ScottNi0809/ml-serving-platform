@@ -13,9 +13,11 @@ LLM 推理服务，代理请求到 vLLM 后端。
     VLLM_DEFAULT_MODEL: 默认模型名（默认 Qwen/Qwen2.5-1.5B-Instruct）
 """
 import os
+import json
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 
 from serving.llm_schemas import ChatCompletionRequest, ChatCompletionResponse, TokenUsage
 from serving.llm_worker import LLMWorker
@@ -80,14 +82,37 @@ async def chat_completions(body: ChatCompletionRequest):
     接收标准化的 Chat 请求，转发给 vLLM，返回标准化的响应。
     Gateway 通过这个接口调用 LLM 推理。
     """
+    messages = [msg.model_dump() for msg in body.messages]
+
+    # ── 流式模式 ──
     if body.stream:
-        raise HTTPException(
-            status_code=501,
-            detail="Streaming not implemented yet — Day21 will add this.",
+        async def event_generator():
+            """将 LLMWorker 的 async generator 包装成 SSE 流"""
+            try:
+                async for chunk in llm_worker.chat_stream(
+                    messages = messages,
+                    max_tokens = body.max_tokens,
+                    temperature = body.temperature,
+                ):
+                    yield chunk
+            except Exception as e:
+                # 流中发生错误，发送错误事件后结束
+                error_chunk = {"error": str(e)}
+                yield f"data: {json.dumps(error_chunk)}\n\n"
+                yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Access-Buffering": "no", # 禁用Nginx缓冲
+            }
         )
 
+    # ── 非流式模式 ──
     try:
-        messages = [msg.model_dump() for msg in body.messages]
         result = await llm_worker.chat(
             messages=messages,
             max_tokens=body.max_tokens,

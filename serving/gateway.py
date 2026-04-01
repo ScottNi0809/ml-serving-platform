@@ -9,6 +9,7 @@ import random
 
 import httpx
 from typing import Optional
+from collections.abc import AsyncGenerator
 
 
 class GatewayRouter:
@@ -278,7 +279,35 @@ class GatewayRouter:
         response = await self._client.post(chat_url, json=payload)
         response.raise_for_status()
         return response.json()
+    
+    async def forward_chat_stream(
+            self, model_name: str, version: str, payload: dict
+    ) -> AsyncGenerator[bytes, None]:
+        """
+        流式转发 LLM Chat 请求 — SSE 透传。
+
+        Gateway 作为 SSE 代理：
+        1. 向 LLM Worker 发送 stream=true 的请求
+        2. 逐 chunk 读取 LLM Worker 的 SSE 响应
+        3. 原封不动地 yield 给调用方（最终推送给客户端）
+
+        Yields:
+            SSE 格式的 bytes，如 b'data: {"content": "你"}\n\n'
+        """
+        worker_url = self.get_worker_url(model_name, version)
+        if not worker_url:
+            raise KeyError(f"No worker registered for {model_name}:{version}")
         
+        chat_url = f"{worker_url}/api/v1/chat/completions"
+        
+        # 确保 payload 中 stream=true
+        payload["stream"] = True
+
+        async with self._client.stream("POST", chat_url, json=payload) as response:
+            response.raise_for_status()
+            async for chunk in response.aiter_bytes():
+                yield chunk
+
     async def close(self):
         """关闭 HTTP 客户端"""
         await self._client.aclose()

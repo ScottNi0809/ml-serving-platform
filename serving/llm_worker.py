@@ -7,7 +7,9 @@ LLM Worker — vLLM 代理层
 本质：thin HTTP proxy，不直接管理模型，而是委托给 vLLM。
 """
 import httpx
+import json
 from typing import Any
+from collections.abc import AsyncGenerator
 
 
 class LLMWorker:
@@ -74,6 +76,68 @@ class LLMWorker:
             }
 
         return result
+
+    async def chat_stream(
+            self,
+            messages: list[dict[str, str]],
+            max_tokens: int = 256,
+            temperature: float = 0.7,
+            model: str | None = None,
+    ) -> AsyncGenerator[str, None]:
+        """
+        流式 Chat — 逐 chunk 从 vLLM 接收 SSE 数据并 yield。
+
+        Yields:
+            SSE 格式的字符串，如 'data: {"content": "你"}\n\n'
+        """        
+        model_name = model or self.default_model
+
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True, # 开启流式输出
+        }
+        
+        url = f"{self.vllm_base_url}/v1/chat/completions"
+
+        async with self._client.stream("POST", url, json=payload) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                # vLLM返回的每行格式： data: {"content": "你"}\n\n 或 data: [DONE]
+                if not line.strip():
+                    continue # 空行忽略
+
+                if line.startswith("data: "):
+                    data_str = line[len("data: "):]
+
+                    if data_str == "[DONE]":
+                        # 流结束，发送Done信号
+                        yield "data: [DONE]\n\n"
+                        return
+
+                    # 解析 vLLM 的 SSE chunk，提取 delta.content
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk["choices"][0].get("delta", {})
+                        content = delta.get("content")
+                        finish_reason = chunk["choices"][0].get("finish_reason")
+
+                        # 跳过 content 为 None 的 chunk（如第一个 role 宣告 chunk）
+                        if content is None and finish_reason is None:
+                            continue
+
+                        # 构造我们自己的SSE格式（标准化）
+                        our_chunk = {
+                            "content": content,
+                            "finish_reason": finish_reason,
+                            "model": chunk.get("model", model_name),
+                        }
+                        yield f"data: {json.dumps(our_chunk, ensure_ascii=False)}\n\n"
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        # 解析失败的 chunk 跳过，不中断流
+                        continue
 
     async def health_check(self) -> dict[str, Any]:
         """检查 vLLM 后端是否健康"""

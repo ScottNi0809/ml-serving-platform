@@ -10,6 +10,7 @@ Gateway Service — FastAPI 入口
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Path
+from fastapi.responses import StreamingResponse
 
 from serving.gateway import GatewayRouter
 from serving.gateway_schemas import (
@@ -18,6 +19,7 @@ from serving.gateway_schemas import (
     ABRouteConfig,
     RollbackRequest,
     GatewayChatRequest,
+    GatewayChatStreamRequest,
 )
 
 # 全局 Gateway Router 实例
@@ -148,6 +150,39 @@ async def gateway_chat(
             detail=f"Failed to forward request to worker: {e}",
         )
 
+@app.post("/api/v1/gateway/chat/{model_name}/{version}/stream")
+async def gateway_chat_stream(
+    body: GatewayChatStreamRequest,
+    model_name: str = Path(...),
+    version: str = Path(...),
+):
+    """
+    LLM 流式推理入口 — SSE 格式。
+
+    和 /chat/{model_name}/{version} 的区别：
+    - 非流式版本：返回 JSON，等全部生成完
+    - 流式版本：返回 SSE 流，逐 token 推送
+    """
+    try:
+        async def stream_generator():
+            async for chunk in router.forward_chat_stream(
+                model_name = model_name,
+                version = version,
+                payload = body.model_dump(),
+            ):
+                yield chunk
+
+        return StreamingResponse(
+            stream_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+    except KeyError as e:
+            raise HTTPException(status_code=404, detail=str(e))
 
 # ── Worker 健康检查 ───────────────────────────────────────────
 
