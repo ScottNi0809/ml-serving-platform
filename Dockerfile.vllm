@@ -1,0 +1,70 @@
+# ================================================================
+# Dockerfile.vllm — vLLM GPU 推理引擎
+# ================================================================
+# 基础镜像：NVIDIA 官方 PyTorch 镜像（已含 CUDA + cuDNN + PyTorch）
+# 选择理由：vLLM 依赖 PyTorch + CUDA，用 NVIDIA 镜像省去手动装 CUDA 的麻烦
+#
+# 镜像层级：
+#   nvidia/cuda:12.4-base      ← 只有 CUDA runtime（最小）
+#   nvidia/cuda:12.4-runtime   ← CUDA runtime + cuBLAS
+#   nvidia/cuda:12.4-devel     ← 完整 CUDA（含 nvcc 编译器）
+#   pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime  ← PyTorch + CUDA（我们选这个）
+# ================================================================
+
+FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime
+
+# ── 配置中国内地镜像源 ──────────────────────────────────────
+# apt 清华源
+RUN sed -i 's|archive.ubuntu.com|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list && \
+    sed -i 's|security.ubuntu.com|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list
+
+# pip 清华源
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+    && pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
+
+# ── 安装系统依赖 ───────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── 安装 vLLM ──────────────────────────────────────────────
+# vLLM 会自动安装匹配的 PyTorch + CUDA 依赖
+# 固定版本以保证可复现性
+# transformers 必须固定到 4.48.3：
+#   - vllm==0.7.3 要求 transformers>=4.48.2
+#   - transformers>=4.49 破坏了 deepseek_vl2.py 的 dataclass 参数顺序
+#     （TypeError: non-default argument 'vision_config' follows default argument）
+#   4.48.3 是满足约束的最高兼容版本
+RUN pip install --no-cache-dir vllm==0.7.3 transformers==4.48.3
+
+# ── 创建非 root 用户 ──────────────────────────────────────
+RUN groupadd -r vllm && useradd -r -g vllm -d /app -s /sbin/nologin vllm
+WORKDIR /app
+
+# 模型缓存目录（HuggingFace 下载的模型存这里）
+RUN mkdir -p /app/models && chown -R vllm:vllm /app
+
+USER vllm
+
+# ── 暴露端口 ───────────────────────────────────────────────
+EXPOSE 8100
+
+# ── 健康检查 ───────────────────────────────────────────────
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:8100/health || exit 1
+
+# ── 启动 vLLM ──────────────────────────────────────────────
+# 用环境变量控制模型名和参数，方便在 docker-compose 中覆盖
+ENV MODEL_NAME="Qwen/Qwen2.5-1.5B-Instruct"
+ENV MAX_MODEL_LEN=2048
+ENV GPU_MEMORY_UTILIZATION=0.85
+
+# vLLM 以 OpenAI-compatible API server 模式启动
+CMD ["sh", "-c", \
+    "python -m vllm.entrypoints.openai.api_server \
+        --model ${MODEL_NAME} \
+        --host 0.0.0.0 \
+        --port 8100 \
+        --max-model-len ${MAX_MODEL_LEN} \
+        --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION} \
+        --trust-remote-code"]

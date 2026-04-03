@@ -1,0 +1,78 @@
+# ================================================================
+# docker-compose.gpu.yml — GPU 推理服务编排
+# ================================================================
+# 用法：docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+#
+# 在基础的 registry + ml-worker + gateway 之上，
+# 增加 vllm (GPU) 和 llm-worker (CPU) 两个服务。
+# ================================================================
+
+services:
+
+  # ── vLLM 推理引擎（唯一的 GPU 服务） ──────────────────────
+  vllm:
+    build:
+      context: .
+      dockerfile: Dockerfile.vllm
+    container_name: vllm-engine
+    ports:
+      - "8100:8100"
+    environment:
+      - MODEL_NAME=Qwen/Qwen2.5-1.5B-Instruct
+      - MAX_MODEL_LEN=2048
+      - GPU_MEMORY_UTILIZATION=0.85
+      # HuggingFace 缓存目录
+      - HF_HOME=/app/models
+      # 国内镜像加速下载（如果模型未缓存的话）
+      - HF_ENDPOINT=https://hf-mirror.com
+    volumes:
+      # 模型缓存：避免每次启动都重新下载
+      - hf-model-cache:/app/models
+    # ★ GPU 配置 — docker compose 语法 ★
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1          # 使用 1 块 GPU
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s       # 首次冷启动需下载模型（~300s）+ 加载权重 + warmup
+
+  # ── LLM Worker（CPU 代理层） ─────────────────────────────
+  llm-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.llm-worker
+    container_name: llm-worker
+    ports:
+      - "8003:8003"
+    environment:
+      # ★ 容器间通信用服务名，不用 localhost ★
+      - VLLM_BASE_URL=http://vllm:8100
+      - VLLM_DEFAULT_MODEL=Qwen/Qwen2.5-1.5B-Instruct
+    depends_on:
+      vllm:
+        condition: service_healthy  # 等 vLLM 加载完模型再启动
+    restart: unless-stopped
+
+  # ── Gateway 覆盖：增加 LLM Worker 依赖 ──────────────────
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.serving
+    container_name: ml-gateway
+    ports:
+      - "8002:8002"
+    command: ["uvicorn", "serving.gateway_app:app", "--host", "0.0.0.0", "--port", "8002"]
+    depends_on:
+      - llm-worker
+
+volumes:
+  hf-model-cache:
+    driver: local
