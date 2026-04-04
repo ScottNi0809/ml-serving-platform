@@ -1,3 +1,4 @@
+# requirements.txt — 基础依赖（不含 LLM 推理栈）
 fastapi==0.115.0
 uvicorn==0.30.0
 pydantic==2.9.0
@@ -8,4 +9,3 @@ pytest==8.3.0
 scikit-learn==1.5.0
 joblib==1.4.2
 numpy==1.26.4
-openai==1.51.2

@@ -20,7 +20,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 
 from serving.llm_schemas import ChatCompletionRequest, ChatCompletionResponse, TokenUsage
-from serving.llm_worker import LLMWorker
+from serving.llm_worker import LLMWorker, LLMWorkerError
 
 # 从环境变量读取配置（12-Factor App 原则）
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8100")
@@ -129,8 +129,9 @@ async def chat_completions(body: ChatCompletionRequest):
             usage=usage,
             finish_reason=result.get("finish_reason"),
         )
+    except LLMWorkerError as e:
+        # 自定义异常：按 status_code 返回对应的 HTTP 状态
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"vLLM backend error: {e}",
-        )
+        # 未预期异常：兜底 500
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {e}")

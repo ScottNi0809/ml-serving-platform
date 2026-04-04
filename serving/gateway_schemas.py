@@ -67,7 +67,8 @@ class GatewayChatRequest(BaseModel):
     """Gateway LLM 推理请求 — Chat Completions 格式"""
     messages: list[dict] = Field(
         ...,
-        description="聊天消息列表",
+        min_length=1,
+        description="聊天消息列表，至少需要一条消息",
         examples=[[
             {"role": "user", "content": "什么是KV Cache？"},
         ]],
@@ -79,7 +80,8 @@ class GatewayChatStreamRequest(BaseModel):
     """Gateway LLM 推理请求 — Chat Completions 格式"""
     messages: list[dict] = Field(
         ...,
-        description="聊天消息列表",
+        min_length=1,
+        description="聊天消息列表，至少需要一条消息",
         examples=[[
             {"role": "user", "content": "什么是KV Cache？"},
         ]],

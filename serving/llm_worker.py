@@ -4,6 +4,10 @@ LLM Worker — vLLM 代理层
 接收标准化的 Chat 请求，转发给 vLLM 的 OpenAI-compatible API，
 返回标准化的响应。
 
+增加了：
+- 自定义异常层级（区分超时 / 连接失败 / 后端错误）
+- 结构化错误信息
+
 本质：thin HTTP proxy，不直接管理模型，而是委托给 vLLM。
 """
 import httpx
@@ -12,6 +16,44 @@ from typing import Any
 from collections.abc import AsyncGenerator
 
 
+# ── 自定义异常 ────────────────────────────────────────────────
+class LLMWorkerError(Exception):
+    """LLM Worker 基础异常"""
+    def __init__(self, message: str, status_code: int = 502):
+        self.message = message
+        self.status_code = status_code
+        super().__init__(message)
+
+
+class VLLMConnectionError(LLMWorkerError):
+    """vLLM 后端不可达"""
+    def __init__(self, url: str):
+        super().__init__(
+            message=f"Cannot connect to vLLM backend at {url}. Is vLLM running?",
+            status_code=503,  # Service Unavailable
+        )
+
+
+class VLLMTimeoutError(LLMWorkerError):
+    """vLLM 推理超时"""
+    def __init__(self, timeout: float):
+        super().__init__(
+            message=f"vLLM inference timed out after {timeout}s. "
+                    f"Try reducing max_tokens or check GPU load.",
+            status_code=504,  # Gateway Timeout
+        )
+
+
+class VLLMResponseError(LLMWorkerError):
+    """vLLM 返回了非 2xx 响应"""
+    def __init__(self, status_code: int, detail: str):
+        super().__init__(
+            message=f"vLLM returned HTTP {status_code}: {detail}",
+            status_code=502,  # Bad Gateway
+        )
+        
+
+# ──── LLM Worker ─────────────────────────────────────────────
 class LLMWorker:
     """LLM 推理工作器 — 代理到 vLLM 后端"""
 
@@ -55,11 +97,21 @@ class LLMWorker:
         }
 
         url = f"{self.vllm_base_url}/v1/chat/completions"
-        response = await self._client.post(url, json=payload)
-        response.raise_for_status()
 
+        try:
+            response = await self._client.post(url, json=payload)
+            response.raise_for_status()
+        except httpx.ConnectError:
+            raise VLLMConnectionError(url)
+        except httpx.TimeoutException:
+            raise VLLMTimeoutError(self._client.timeout.read or 120.0)
+        except httpx.HTTPStatusError as e:
+            raise VLLMResponseError(
+                status_code=e.response.status_code,
+                detail=e.response.text[:500],  # 截断避免日志膨胀
+            )
+        
         data = response.json()
-
         # 标准化响应：从 OpenAI 格式提取关键信息
         choice = data["choices"][0]
         result = {
