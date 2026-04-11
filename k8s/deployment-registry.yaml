@@ -24,13 +24,9 @@ spec:
           imagePullPolicy: Never       # ★ 关键！不要去远程拉，用本地已有的
           ports:
             - containerPort: 8000
-          env:
-            - name: APP_ENV
-              value: "production"
-            - name: DATABASE_URL
-              value: "sqlite:///./data/registry.db"
-            - name: MODEL_STORE_PATH
-              value: "./model_store"
+          envFrom:
+            - configMapRef:
+                name: registry-config  # 引用 ConfigMap 名称
           resources:
             requests:
               cpu: "100m"
