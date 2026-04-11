@@ -1,0 +1,54 @@
+# deployment-registry.yaml
+# 对应 docker-compose.yml 中的 registry 服务
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  labels:
+    app: registry
+    component: api
+spec:
+  replicas: 1                          # 先用 1 个副本
+  selector:
+    matchLabels:
+      app: registry
+  template:
+    metadata:
+      labels:
+        app: registry
+        component: api
+    spec:
+      containers:
+        - name: registry
+          image: ml-registry:v1        # 本地镜像
+          imagePullPolicy: Never       # ★ 关键！不要去远程拉，用本地已有的
+          ports:
+            - containerPort: 8000
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: DATABASE_URL
+              value: "sqlite:///./data/registry.db"
+            - name: MODEL_STORE_PATH
+              value: "./model_store"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
