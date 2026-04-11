@@ -1,0 +1,18 @@
+# service-gateway.yaml
+# gateway 是对外流量入口，使用 NodePort 类型让外部可访问
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  labels:
+    app: gateway
+spec:
+  type: NodePort                     # ★ 对外暴露（不像 registry 用 ClusterIP）
+  selector:
+    app: gateway                     # 匹配 gateway Pod 的标签
+  ports:
+    - port: 8002                     # Service 端口
+      targetPort: 8002               # 转发到 Pod 的 8002
+      nodePort: 30002                # 外部通过 NodeIP:30002 访问
+      protocol: TCP
+      name: http

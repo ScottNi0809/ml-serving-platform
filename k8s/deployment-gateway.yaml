@@ -1,0 +1,52 @@
+# deployment-gateway.yaml
+# 对应 docker-compose.gpu.yml 中的 gateway 服务
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels:
+    app: gateway
+    component: traffic
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway                   # Deployment 管理 app=gateway 的 Pod
+  template:
+    metadata:
+      labels:
+        app: gateway                 # Pod 标签，必须和 selector 一致
+        component: traffic
+    spec:
+      containers:
+        - name: gateway
+          image: ml-gateway:v1       # 本地镜像
+          imagePullPolicy: Never     # 不去远程拉取
+          ports:
+            - containerPort: 8002    # gateway 监听 8002
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: REGISTRY_URL
+              value: "http://registry:8000"      # ★ 通过 Service 名访问 registry
+            - name: ML_WORKER_URL
+              value: "http://ml-worker:8001"     # 后续部署 ml-worker 后可用
+          resources:
+            requests:
+              cpu: "101m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 5
+            periodSeconds: 10
