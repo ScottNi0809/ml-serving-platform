@@ -22,6 +22,7 @@ spec:
         - name: gateway
           image: ml-gateway:v1       # 本地镜像
           imagePullPolicy: Never     # 不去远程拉取
+          command: ["uvicorn", "serving.gateway_app:app", "--host", "0.0.0.0", "--port", "8002"]
           ports:
             - containerPort: 8002    # gateway 监听 8002
           env:
