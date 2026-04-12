@@ -1,0 +1,51 @@
+# deployment-llm-worker.yaml
+# llm-worker 是纯 CPU 的 HTTP 转发层，不需要 GPU
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-worker
+  labels:
+    app: llm-worker
+    component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llm-worker
+  template:
+    metadata:
+      labels:
+        app: llm-worker
+        component: worker
+    spec:
+      containers:
+        - name: llm-worker
+          image: ml-llm-worker:v1
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8003
+          env:
+            - name: VLLM_BASE_URL
+              value: "http://vllm:8100"    # ★ 通过 K8s Service 名访问 vLLM
+            - name: APP_ENV
+              value: "production"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+              # 注意：没有 nvidia.com/gpu → 纯 CPU 服务
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8003
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8003
+            initialDelaySeconds: 5
+            periodSeconds: 10

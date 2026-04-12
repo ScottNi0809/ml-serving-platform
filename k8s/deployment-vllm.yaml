@@ -1,0 +1,68 @@
+# deployment-vllm.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  labels:
+    app: vllm
+    component: inference-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+        component: inference-engine
+    spec:
+      containers:
+        - name: vllm
+          image: ml-vllm:v1
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8100
+          env:
+            - name: MODEL_NAME
+              value: "Qwen/Qwen2.5-1.5B-Instruct"
+            - name: MAX_MODEL_LEN
+              value: "2048"
+            - name: GPU_MEMORY_UTILIZATION
+              value: "0.85"
+            - name: HF_ENDPOINT
+              value: "https://hf-mirror.com"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "4Gi"
+            limits:
+              cpu: "2"
+              memory: "8Gi"
+              nvidia.com/gpu: 1        # ★ GPU 声明
+          startupProbe:                # ★ 模型加载探针
+            httpGet:
+              path: /health
+              port: 8100
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8100
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8100
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: model-cache
+              mountPath: /root/.cache/huggingface
+      volumes:
+        - name: model-cache
+          PersistentVolumeClaim:
+            claimName: model-cache-pvc

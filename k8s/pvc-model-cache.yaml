@@ -1,0 +1,14 @@
+# pvc-model-cache.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-cache-pvc
+  labels:
+    app: vllm
+spec:
+  accessModes:
+    - ReadWriteOnce             # 单 Pod 读写
+  resources:
+    requests:
+      storage: 10Gi             # 模型缓存空间
+  # minikube 会自动用默认 StorageClass 分配
