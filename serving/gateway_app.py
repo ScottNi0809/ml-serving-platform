@@ -7,10 +7,17 @@ Gateway Service — FastAPI 入口
 运行（开发模式）：
     uvicorn serving.gateway_app:app --reload --host 0.0.0.0 --port 8002
 """
+import time as _time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Path
 from fastapi.responses import StreamingResponse
+
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from starlette.responses import Response
+
+from serving.metrics import INFERENCE_COUNT, INFERENCE_LATENCY
+from serving.middleware import PrometheusMiddleware
 
 from serving.gateway import GatewayRouter
 from serving.gateway_schemas import (
@@ -42,6 +49,10 @@ app = FastAPI(
 )
 
 
+# ── Prometheus 中间件 ─────────────────────────────────────────
+app.add_middleware(PrometheusMiddleware, service_name="gateway")
+
+
 # ── 健康检查 ──────────────────────────────────────────────────
 
 @app.get("/health")
@@ -52,6 +63,17 @@ async def health():
         "service": "gateway",
         "registered_routes": len(routes),
     }
+
+
+# ── Prometheus 指标端点 ────────────────────────────────────────
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus 指标端点——返回所有指标的纯文本"""
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
+    )
 
 
 # ── Worker 注册 / 注销 ───────────────────────────────────────
@@ -101,23 +123,45 @@ async def gateway_predict(
     客户端只需要知道模型名和版本，不需要知道 Worker 的地址。
     Gateway 查路由表，将请求转发给对应的 Worker。
     """
+    start = _time.perf_counter()
     try:
         result = await router.forward_predict(
             model_name=model_name,
             version=version,
             inputs=body.inputs,
         )
+        INFERENCE_COUNT.labels(
+            model_name=model_name,
+            version=version,
+            status="success",
+        ).inc()
         return result
     except KeyError as e:
+        INFERENCE_COUNT.labels(
+            model_name=model_name,
+            version=version,
+            status="not_found",
+        )
         raise HTTPException(
             status_code=404,
             detail=str(e),
         )
     except Exception as e:
+        INFERENCE_COUNT.labels(
+            model_name=model_name,
+            version=version,
+            status="error",
+        )
         raise HTTPException(
             status_code=502,
             detail=f"Failed to forward request to worker: {e}",
         )
+    
+    finally:
+        INFERENCE_LATENCY.labels(
+            model_name=model_name,
+            version=version,
+        ).observe(_time.perf_counter() - start)
 
 
 # ── LLM Chat 入口 ───────────────────────────────────────────

@@ -11,8 +11,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Path
 
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from starlette.responses import Response as StarletteResponse
+
 from serving.schemas import LoadModelRequest, PredictRequest, PredictResponse
 from serving.worker import ServingWorker
+from serving.middleware import PrometheusMiddleware
 
 # 全局 Worker 实例
 worker = ServingWorker()
@@ -33,12 +37,27 @@ app = FastAPI(
 )
 
 
+# ── Prometheus 中间件 ─────────────────────────────────────────
+app.add_middleware(PrometheusMiddleware, service_name="serving")
+
+
+# ── 健康检查 ──────────────────────────────────────────────────
+
 @app.get("/health")
 async def health():
     loaded = worker.list_loaded()
     return {"status": "healthy", "loaded_models": len(loaded)}
 
+@app.get("/metrics")
+async def metrics():
+    """Prometheus 指标端点——返回所有指标的纯文本"""
+    return StarletteResponse(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
+    )
 
+
+# ── API ───────────────────────────────────────────────────────
 @app.post("/api/v1/models/load")
 async def load_model(body: LoadModelRequest):
     """加载模型到内存"""
@@ -58,7 +77,7 @@ async def load_model(body: LoadModelRequest):
 
 @app.post(
     "/api/v1/models/{model_name}/versions/{version}/predict",
-    response_model=PredictResponse,
+    response_model=PredictResponse,  # 响应模型：在路由返回后生效
 )
 async def predict(
     body: PredictRequest,
