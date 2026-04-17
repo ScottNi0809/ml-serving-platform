@@ -48,7 +48,7 @@ A production-grade ML model serving platform — from model registration to real
 | **LLM Worker**  | vLLM HTTP proxy with streaming support             | ✅ Complete |
 | **vLLM Engine** | GPU inference backend (Qwen2.5-1.5B-Instruct)     | ✅ Complete |
 | **CI/CD**       | GitHub Actions: pytest + Docker build verification | ✅ Complete |
-| **Monitoring**  | Prometheus + Grafana observability                 | 🔲 Planned  |
+| **Monitoring**  | Prometheus + Grafana observability                 | ✅ Complete  |
 | **K8s Deploy**  | Helm chart + HPA + GPU scheduling                  | 🔲 Planned  |
 
 ---
@@ -149,6 +149,25 @@ curl -N "$GATEWAY/chat/qwen2.5-1.5b/v1/stream" \
 # → data: [DONE]
 ```
 </details>
+
+---
+
+## Monitoring Dashboard Demo（Prometheus + Grafana）
+
+I built an observability dashboard for the ML Serving Platform using Prometheus and Grafana, covering the Four Golden Signals and validated through real traffic load testing.
+
+In this demo, I intentionally created a traffic pattern with two load bursts separated by an idle window. The dashboard clearly shows:
+
+- QPS peaks, troughs, and recovery (visible traffic dynamics)
+- Endpoint-level traffic distribution (gateway routing behavior)
+- P50/P95/P99 latency percentiles (performance stability)
+- 5xx error rate (currently stable at 0)
+- Service health (gateway/serving remain UP)
+- Active requests (real-time concurrency visibility)
+
+Tech stack：FastAPI + prometheus-client + Prometheus + Grafana + Docker Compose
+
+![Grafana Dashboard Demo](./demo/grafana-dashboard.png)
 
 ---
 
