@@ -61,15 +61,8 @@ services:
         condition: service_healthy  # 等 vLLM 加载完模型再启动
     restart: unless-stopped
 
-  # ── Gateway 覆盖：增加 LLM Worker 依赖 ──────────────────
+  # ── Gateway 覆盖：追加 LLM Worker 依赖 ──────────────────
   gateway:
-    build:
-      context: .
-      dockerfile: Dockerfile.serving
-    container_name: ml-gateway
-    ports:
-      - "8002:8002"
-    command: ["uvicorn", "serving.gateway_app:app", "--host", "0.0.0.0", "--port", "8002"]
     depends_on:
       - llm-worker
 
