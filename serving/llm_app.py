@@ -21,6 +21,7 @@ from fastapi.responses import StreamingResponse
 
 from serving.llm_schemas import ChatCompletionRequest, ChatCompletionResponse, TokenUsage
 from serving.llm_worker import LLMWorker, LLMWorkerError
+from shared.logging_config import setup_logging
 
 # 从环境变量读取配置（12-Factor App 原则）
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8100")
@@ -31,16 +32,19 @@ llm_worker = LLMWorker(
     vllm_base_url=VLLM_BASE_URL,
     default_model=VLLM_DEFAULT_MODEL,
 )
+logger = setup_logging("llm-worker")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print(f"✅ LLM Worker started on port 8003")
-    print(f"   vLLM backend: {VLLM_BASE_URL}")
-    print(f"   Default model: {VLLM_DEFAULT_MODEL}")
+    logger.info("llm_worker_started", extra={
+        "service": "llm-worker",
+        "vllm_base_url": VLLM_BASE_URL,
+        "default_model": VLLM_DEFAULT_MODEL,
+    })
     yield
     await llm_worker.close()
-    print("🔴 LLM Worker shutting down.")
+    logger.info("llm_worker_shutting_down", extra={"service": "llm-worker"})
 
 
 app = FastAPI(

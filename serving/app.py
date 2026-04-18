@@ -18,15 +18,19 @@ from serving.schemas import LoadModelRequest, PredictRequest, PredictResponse
 from serving.worker import ServingWorker
 from serving.middleware import PrometheusMiddleware
 
+from shared.logging_config import setup_logging
+
+logger = setup_logging("serving")
+
 # 全局 Worker 实例
 worker = ServingWorker()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("✅ Serving worker started.")
+    logger.info("serving_started", extra={"service": "serving"})
     yield
-    print("🔴 Serving worker shutting down.")
+    logger.info("serving_shutting_down", extra={"service": "serving"})
 
 
 app = FastAPI(

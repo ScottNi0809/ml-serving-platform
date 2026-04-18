@@ -7,10 +7,11 @@ Gateway Service — FastAPI 入口
 运行（开发模式）：
     uvicorn serving.gateway_app:app --reload --host 0.0.0.0 --port 8002
 """
+import uuid
 import time as _time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Path
+from fastapi import FastAPI, HTTPException, Path, Request
 from fastapi.responses import StreamingResponse
 
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
@@ -18,6 +19,8 @@ from starlette.responses import Response
 
 from serving.metrics import INFERENCE_COUNT, INFERENCE_LATENCY
 from serving.middleware import PrometheusMiddleware
+
+from shared.logging_config import setup_logging, request_id_var
 
 from serving.gateway import GatewayRouter
 from serving.gateway_schemas import (
@@ -31,14 +34,15 @@ from serving.gateway_schemas import (
 
 # 全局 Gateway Router 实例
 router = GatewayRouter()
+logger = setup_logging("gateway")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("✅ Gateway started on port 8002")
+    logger.info("gateway_started", extra={"service": "gateway"})
     yield
     await router.close()
-    print("🔴 Gateway shutting down.")
+    logger.info("gateway_shutting_down", extra={"service": "gateway"})
 
 
 app = FastAPI(
@@ -49,9 +53,38 @@ app = FastAPI(
 )
 
 
-# ── Prometheus 中间件 ─────────────────────────────────────────
+# ── 中间件 ────────────────────────────────────────────────────
 app.add_middleware(PrometheusMiddleware, service_name="gateway")
 
+
+# ============================================================
+# 请求日志 + Request ID 中间件（合并，避免执行顺序问题）
+# ============================================================
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    # 生成或读取 request_id
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())[:8]
+    request_id_var.set(request_id)
+
+    start = _time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (_time.perf_counter() - start) * 1000
+
+    # 写入响应头
+    response.headers["X-Request-ID"] = request_id
+
+    logger.info(
+        "http_request",
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration": round(elapsed_ms, 1),
+        },
+    )
+    return response
 
 # ── 健康检查 ──────────────────────────────────────────────────
 

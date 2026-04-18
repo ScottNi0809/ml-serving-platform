@@ -23,6 +23,8 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from shared.logging_config import setup_logging
+
 from registry.database import create_tables, get_db
 from registry.exceptions import (
     DuplicateModelError,
@@ -31,6 +33,8 @@ from registry.exceptions import (
     ModelVersionNotFoundError,
 )
 from registry.routers import models
+
+logger = setup_logging("registry")
 
 
 # ============================================================
@@ -41,9 +45,9 @@ from registry.routers import models
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化数据库表"""
     create_tables()
-    print("✅ Registry service started. Database initialized.")
+    logger.info("registry_started", extra={"service": "registry"})
     yield
-    print("🔴 Registry service shutting down.")
+    logger.info("registry_shutting_down", extra={"service": "registry"})
 
 
 # ============================================================
@@ -80,9 +84,15 @@ async def log_requests(request: Request, call_next):
     start = time.perf_counter()
     response = await call_next(request)
     elapsed_ms = (time.perf_counter() - start) * 1000
-    print(
-        f"[{request_id}] {request.method} {request.url.path} "
-        f"→ {response.status_code} ({elapsed_ms:.1f}ms)"
+    logger.info(
+        "http_request",
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration": round(elapsed_ms, 1),
+        },
     )
     response.headers["X-Request-ID"] = request_id
     return response
