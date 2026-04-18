@@ -7,6 +7,7 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - LOG_LEVEL=INFO
       - APP_ENV=production
       - DATABASE_URL=sqlite:///./data/registry.db
       - MODEL_STORE_PATH=./model_store
@@ -40,7 +41,9 @@ services:
     container_name: ml-gateway
     ports:
       - "8002:8002"
-    command: ["uvicorn", "serving.gateway_app:app", "--host", "0.0.0.0", "--port", "8002"]
+    environment:
+      - LOG_LEVEL=INFO
+    command: ["uvicorn", "serving.gateway_app:app", "--host", "0.0.0.0", "--port", "8002", "--no-access-log"]
     depends_on:
       registry:
         condition: service_healthy
