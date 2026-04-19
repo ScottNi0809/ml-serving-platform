@@ -84,16 +84,16 @@ class S3Storage(BaseStorage):
         pass
 
     def save(self, model_name: str, version: str, file: BinaryIO, filename: str) -> str:
-        raise NotImplementedError("S3Storage.save not implemented")
+        raise NotImplementedError("S3Storage requires AWS_BUCKET_NAME and AWS_REGION environment variables")
 
     def load(self, path: str) -> bytes:
-        raise NotImplementedError("S3Storage.load not implemented")
+        raise NotImplementedError("S3Storage requires AWS_BUCKET_NAME and AWS_REGION environment variables")
 
     def delete(self, path: str) -> None:
-        raise NotImplementedError("S3Storage.delete not implemented")
+        raise NotImplementedError("S3Storage requires AWS_BUCKET_NAME and AWS_REGION environment variables")
 
     def exists(self, path: str) -> bool:
-        raise NotImplementedError("S3Storage.exists not implemented")
+        raise NotImplementedError("S3Storage requires AWS_BUCKET_NAME and AWS_REGION environment variables")
 
 
 def create_storage(backend: str = "local", **kwargs) -> BaseStorage:

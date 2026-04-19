@@ -1,18 +1,41 @@
+# ========== Stage 1: 安装依赖 ==========
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+# 沿用 .bak 的清华源
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+# # 沿用清华源（改用 HTTP 避免 Docker 内 SSL 问题）
+# RUN pip config set global.index-url http://mirrors.aliyun.com/pypi/simple/ \
+#     && pip config set global.trusted-host mirrors.aliyun.com
+
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ========== Stage 2: 运行时 ==========
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# 使用清华 PyPI 源
-RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+# 创建非 root 用户
+RUN groupadd -r appuser && useradd -r -g appuser -d /app appuser
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# 仅拷贝已安装的依赖（不含 pip/cache 等构建工具）
+COPY --from=builder /install /usr/local
 
-# 安装 serving 额外依赖
-RUN pip install --no-cache-dir scikit-learn joblib numpy
-
-COPY shared/ ./shared/
+# 拷贝源码
 COPY serving/ ./serving/
+COPY shared/ ./shared/
+
+# 设置权限
+RUN chown -R appuser:appuser /app
+USER appuser
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')" || exit 1
 
 EXPOSE 8001
 

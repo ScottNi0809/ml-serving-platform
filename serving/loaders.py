@@ -64,8 +64,8 @@ def load_model(framework: str, file_path: str, model_name: str, version: str) ->
         model = joblib.load(file_path)
         return SklearnRunner(model, model_name, version)
     elif framework == "pytorch":
-        raise NotImplementedError("PyTorch loader — 第 4 周实现")
+        raise NotImplementedError("Pytorch loader")
     elif framework == "onnx":
-        raise NotImplementedError("ONNX loader — 后续扩展")
+        raise NotImplementedError("ONNX loader")
     else:
         raise ValueError(f"Unsupported framework: {framework}")
