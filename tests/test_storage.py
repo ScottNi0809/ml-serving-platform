@@ -19,7 +19,7 @@ class TestStorage:
     def test_s3_storage_methods_raise_not_implemented(self):
         store = create_storage(backend="s3", bucket_name="test-bucket", prefix="test-prefix/")
 
-        with pytest.raises(NotImplementedError, match="S3Storage.save not implemented"):
+        with pytest.raises(NotImplementedError, match="S3Storage requires AWS_BUCKET_NAME and AWS_REGION environment variables"):
             store.save("test", "1.0.0", None, "model.pt")
 
     def test_create_storage_raises_for_unsupported_backend(self):
