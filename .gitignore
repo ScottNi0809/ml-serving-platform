@@ -65,3 +65,6 @@ coverage.xml
 
 # Template Files
 Template And Plan/
+
+# Benchmark results (generated output, reproduce via run_benchmark.sh)
+benchmarks/results/

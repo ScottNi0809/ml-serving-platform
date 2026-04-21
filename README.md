@@ -171,6 +171,22 @@ Tech stack：FastAPI + prometheus-client + Prometheus + Grafana + Docker Compose
 
 ---
 
+## Performance
+
+Benchmark results from load testing with [Locust](https://locust.io/) ([full report](docs/benchmark.md)):
+
+| Metric | Value |
+|--------|-------|
+| Throughput (50 users) | ~121 RPS |
+| P50 Latency | 5ms |
+| P95 Latency | 11ms |
+| P99 Latency | 18ms |
+| Error Rate | 0% |
+
+> Scales near-linearly to 200 concurrent users (454 RPS) with 0% error rate.
+
+---
+
 ## Key Design Decisions
 
 | Decision | Choice | Why |
