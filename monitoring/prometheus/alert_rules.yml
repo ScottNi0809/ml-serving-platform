@@ -1,0 +1,65 @@
+groups:
+  - name: ml-platform-availability
+    rules:
+      # 错误率告警：5xx 错误率 > 5% 持续 2 分钟
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
+            / sum(rate(http_requests_total[5m])) by (service)
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate on {{ $labels.service }}"
+          description: "{{ $labels.service }} error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+      # 服务宕机告警：健康检查目标消失
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Prometheus cannot scrape {{ $labels.instance }}"
+
+  - name: ml-platform-performance
+    rules:
+      # 高延迟告警：P95 > 500ms 持续 5 分钟
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, service) (rate(http_request_duration_seconds_bucket[5m]))
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High P95 latency on {{ $labels.service }}"
+          description: "P95 latency is {{ $value | humanizeDuration }} (threshold: 500ms)"
+
+      # QPS 突降告警：QPS 低于历史均值的 50%
+      - alert: LowThroughput
+        expr: |
+          sum(rate(http_requests_total[5m])) by (service)
+          < sum(rate(http_requests_total[30m])) by (service) * 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Throughput drop on {{ $labels.service }}"
+          description: "Current QPS is less than 50% of 30-minute average"
+
+  - name: ml-platform-saturation
+    rules:
+      # 活跃请求数过高：持续 > 50
+      - alert: HighActiveRequests
+        expr: sum(http_active_requests) by (service) > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High active requests on {{ $labels.service }}"
+          description: "{{ $labels.service }} has {{ $value }} active requests"

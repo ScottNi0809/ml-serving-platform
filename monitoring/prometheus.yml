@@ -4,6 +4,9 @@ global:
   scrape_interval: 15s      # 每 15 秒拉取一次（默认值）
   evaluation_interval: 15s   # 每 15 秒评估一次告警规则
 
+rule_files:
+  - /etc/prometheus/alert_rules.yml  # 包含告警规则的文件
+
 scrape_configs:
   # Job 1：Prometheus 监控自己
   - job_name: "prometheus"
