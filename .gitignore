@@ -55,6 +55,8 @@ coverage.xml
 
 # Binary
 *.bin
+*.tgz
+
 # Squad: ignore runtime state (logs, inbox, sessions)
 .squad/orchestration-log/
 .squad/log/
