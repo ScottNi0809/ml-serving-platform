@@ -1,0 +1,152 @@
+# ML Serving Platform - default Helm values.
+# Defaults target local minikube development with locally loaded images.
+
+global:
+  imageRegistry: ""
+  imageTag: "v1"
+  imagePullPolicy: Never
+
+nameOverride: ""
+fullnameOverride: ""
+
+registry:
+  replicas: 1
+  port: 8000
+  image:
+    repository: ml-registry
+    tag: ""
+  env:
+    APP_ENV: "production"
+    DATABASE_URL: "sqlite:///./data/registry.db"
+    MODEL_STORE_PATH: "./model_store"
+    LOG_LEVEL: "INFO"
+  persistence:
+    data:
+      enabled: true
+      size: 5Gi
+      accessMode: ReadWriteOnce
+      storageClassName: ""
+    modelStore:
+      enabled: true
+      size: 10Gi
+      accessMode: ReadWriteOnce
+      storageClassName: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+mlWorker:
+  replicas: 1
+  port: 8001
+  image:
+    repository: ml-serving
+    tag: ""
+  env:
+    APP_ENV: "production"
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+gateway:
+  replicas: 1
+  port: 8002
+  image:
+    repository: ml-gateway
+    tag: ""
+  service:
+    type: NodePort
+    nodePort: 30002
+  env:
+    APP_ENV: "production"
+    LOG_LEVEL: "INFO"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+llmWorker:
+  enabled: true
+  replicas: 1
+  port: 8003
+  image:
+    repository: ml-llm-worker
+    tag: ""
+  env:
+    APP_ENV: "production"
+    VLLM_DEFAULT_MODEL: "Qwen/Qwen2.5-1.5B-Instruct"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+vllm:
+  enabled: true
+  replicas: 1
+  port: 8100
+  image:
+    repository: ml-vllm
+    tag: ""
+  env:
+    MODEL_NAME: "Qwen/Qwen2.5-1.5B-Instruct"
+    MAX_MODEL_LEN: "2048"
+    GPU_MEMORY_UTILIZATION: "0.85"
+    HF_HOME: "/app/models"
+    HF_ENDPOINT: "https://hf-mirror.com"
+  gpu:
+    enabled: true
+    count: 1
+  modelCache:
+    enabled: true
+    size: 10Gi
+    accessMode: ReadWriteOnce
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 4Gi
+    limits:
+      cpu: "2"
+      memory: 8Gi
+
+autoscaling:
+  enabled: false
+  gateway:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPU: 70
+    targetMemory: 80
+  mlWorker:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 10
+    targetCPU: 70
+    targetMemory: 80
+  registry:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPU: 70
+
+# -- Ingress configuration
+ingress:
+  enabled: false
+  className: nginx
+  host: ml-platform.local
+  annotations: {}
+  tls: []
+  exposeRegistry: false

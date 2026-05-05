@@ -1,0 +1,95 @@
+# Production-style overrides. Update imageRegistry and host for a real cluster.
+
+global:
+  imageRegistry: "registry.example.com/ml-serving-platform"
+  imageTag: "v1.0.0"
+  imagePullPolicy: IfNotPresent
+
+registry:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  persistence:
+    data:
+      size: 20Gi
+    modelStore:
+      size: 100Gi
+
+mlWorker:
+  replicas: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+
+gateway:
+  replicas: 2
+  service:
+    type: ClusterIP
+    nodePort: null
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+llmWorker:
+  enabled: true
+  replicas: 2
+
+vllm:
+  enabled: true
+  replicas: 1
+  gpu:
+    enabled: true
+    count: 1
+  modelCache:
+    size: 100Gi
+  resources:
+    requests:
+      cpu: "2"
+      memory: 8Gi
+    limits:
+      cpu: "4"
+      memory: 16Gi
+
+autoscaling:
+  enabled: true
+  gateway:
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPU: 70
+    targetMemory: 80
+  mlWorker:
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPU: 60
+    targetMemory: 75
+  registry:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPU: 70
+
+ingress:
+  enabled: true
+  className: nginx
+  host: ml-platform.example.com
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+  tls:
+    - hosts:
+        - ml-platform.example.com
+      secretName: ml-platform-tls
+  exposeRegistry: false

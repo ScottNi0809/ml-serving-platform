@@ -1,0 +1,19 @@
+{{- if .Values.llmWorker.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ml-serving-platform.fullname" . }}-llm-worker
+  labels:
+    {{- include "ml-serving-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: llm-worker
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "ml-serving-platform.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: llm-worker
+  ports:
+    - name: http
+      port: {{ .Values.llmWorker.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ml-serving-platform.fullname" . }}-ml-worker
+  labels:
+    {{- include "ml-serving-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ml-worker
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "ml-serving-platform.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: ml-worker
+  ports:
+    - name: http
+      port: {{ .Values.mlWorker.port }}
+      targetPort: http
+      protocol: TCP

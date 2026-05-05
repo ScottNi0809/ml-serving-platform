@@ -1,0 +1,36 @@
+{{- if and .Values.autoscaling.enabled .Values.autoscaling.mlWorker.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "ml-serving-platform.fullname" . }}-ml-worker
+  labels:
+    {{- include "ml-serving-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ml-worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "ml-serving-platform.fullname" . }}-ml-worker
+  minReplicas: {{ .Values.autoscaling.mlWorker.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.mlWorker.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.mlWorker.targetCPU }}
+    {{- if .Values.autoscaling.mlWorker.targetMemory }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.mlWorker.targetMemory }}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 30
+{{- end }}

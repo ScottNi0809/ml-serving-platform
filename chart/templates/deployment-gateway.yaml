@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ml-serving-platform.fullname" . }}-gateway
+  labels:
+    {{- include "ml-serving-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  {{- if not (and .Values.autoscaling.enabled .Values.autoscaling.gateway.enabled) }}
+  replicas: {{ .Values.gateway.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "ml-serving-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: gateway
+  template:
+    metadata:
+      labels:
+        {{- include "ml-serving-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: gateway
+    spec:
+      containers:
+        - name: gateway
+          image: "{{ include "ml-serving-platform.image" (list . .Values.gateway.image) }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["uvicorn", "serving.gateway_app:app", "--host", "0.0.0.0", "--port", "{{ .Values.gateway.port }}", "--no-access-log"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.gateway.port }}
+              protocol: TCP
+          env:
+            - name: APP_ENV
+              value: {{ .Values.gateway.env.APP_ENV | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.gateway.env.LOG_LEVEL | quote }}
+            - name: REGISTRY_URL
+              value: "http://{{ include "ml-serving-platform.fullname" . }}-registry:{{ .Values.registry.port }}"
+            - name: ML_WORKER_URL
+              value: "http://{{ include "ml-serving-platform.fullname" . }}-ml-worker:{{ .Values.mlWorker.port }}"
+            {{- if .Values.llmWorker.enabled }}
+            - name: LLM_WORKER_URL
+              value: "http://{{ include "ml-serving-platform.fullname" . }}-llm-worker:{{ .Values.llmWorker.port }}"
+            {{- end }}
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3

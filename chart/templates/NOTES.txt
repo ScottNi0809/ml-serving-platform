@@ -1,0 +1,18 @@
+🚀 ML Serving Platform deployed!
+
+Core services:
+  Registry:   {{ include "ml-serving-platform.fullname" . }}-registry:{{ .Values.registry.port }}
+  ML Worker:  {{ include "ml-serving-platform.fullname" . }}-ml-worker:{{ .Values.mlWorker.port }}
+  Gateway:    {{ include "ml-serving-platform.fullname" . }}-gateway:{{ .Values.gateway.port }}
+{{- if .Values.llmWorker.enabled }}
+  LLM Worker: {{ include "ml-serving-platform.fullname" . }}-llm-worker:{{ .Values.llmWorker.port }}
+{{- end }}
+{{- if .Values.vllm.enabled }}
+  vLLM:       {{ include "ml-serving-platform.fullname" . }}-vllm:{{ .Values.vllm.port }}
+{{- end }}
+
+Local access:
+  kubectl port-forward svc/{{ include "ml-serving-platform.fullname" . }}-gateway {{ .Values.gateway.port }}:{{ .Values.gateway.port }}
+  curl http://localhost:{{ .Values.gateway.port }}/health
+
+If vLLM is enabled on a non-GPU minikube cluster, its pod may stay Pending with Insufficient nvidia.com/gpu. That is expected until a GPU node and NVIDIA device plugin are available.

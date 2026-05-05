@@ -1,0 +1,28 @@
+{{- if and .Values.autoscaling.enabled .Values.autoscaling.registry.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "ml-serving-platform.fullname" . }}-registry
+  labels:
+    {{- include "ml-serving-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "ml-serving-platform.fullname" . }}-registry
+  minReplicas: {{ .Values.autoscaling.registry.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.registry.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.registry.targetCPU }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 30
+{{- end }}

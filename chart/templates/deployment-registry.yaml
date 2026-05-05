@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ml-serving-platform.fullname" . }}-registry
+  labels:
+    {{- include "ml-serving-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+spec:
+  {{- if not (and .Values.autoscaling.enabled .Values.autoscaling.registry.enabled) }}
+  replicas: {{ .Values.registry.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "ml-serving-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: registry
+  template:
+    metadata:
+      labels:
+        {{- include "ml-serving-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: registry
+    spec:
+      containers:
+        - name: registry
+          image: "{{ include "ml-serving-platform.image" (list . .Values.registry.image) }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.registry.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "ml-serving-platform.fullname" . }}-registry-config
+          {{- if or .Values.registry.persistence.data.enabled .Values.registry.persistence.modelStore.enabled }}
+          volumeMounts:
+            {{- if .Values.registry.persistence.data.enabled }}
+            - name: registry-data
+              mountPath: /app/data
+            {{- end }}
+            {{- if .Values.registry.persistence.modelStore.enabled }}
+            - name: model-store
+              mountPath: /app/model_store
+            {{- end }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.registry.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+      {{- if or .Values.registry.persistence.data.enabled .Values.registry.persistence.modelStore.enabled }}
+      volumes:
+        {{- if .Values.registry.persistence.data.enabled }}
+        - name: registry-data
+          persistentVolumeClaim:
+            claimName: {{ include "ml-serving-platform.fullname" . }}-registry-data
+        {{- end }}
+        {{- if .Values.registry.persistence.modelStore.enabled }}
+        - name: model-store
+          persistentVolumeClaim:
+            claimName: {{ include "ml-serving-platform.fullname" . }}-model-store
+        {{- end }}
+      {{- end }}

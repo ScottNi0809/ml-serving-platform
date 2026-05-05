@@ -1,0 +1,18 @@
+{{- if .Values.registry.persistence.data.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ml-serving-platform.fullname" . }}-registry-data
+  labels:
+    {{- include "ml-serving-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+spec:
+  accessModes:
+    - {{ .Values.registry.persistence.data.accessMode }}
+  {{- if .Values.registry.persistence.data.storageClassName }}
+  storageClassName: {{ .Values.registry.persistence.data.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.registry.persistence.data.size }}
+{{- end }}

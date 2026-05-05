@@ -1,0 +1,43 @@
+# Development overrides for local minikube.
+
+global:
+  imageTag: "v1"
+  imagePullPolicy: Never
+
+registry:
+  replicas: 1
+  env:
+    LOG_LEVEL: "DEBUG"
+  persistence:
+    data:
+      size: 1Gi
+    modelStore:
+      size: 1Gi
+
+mlWorker:
+  replicas: 1
+  env:
+    APP_ENV: "development"
+
+gateway:
+  replicas: 1
+  service:
+    type: NodePort
+    nodePort: 30002
+  env:
+    APP_ENV: "development"
+    LOG_LEVEL: "DEBUG"
+
+llmWorker:
+  enabled: false
+
+vllm:
+  enabled: false
+  gpu:
+    enabled: false
+
+autoscaling:
+  enabled: false
+
+ingress:
+  enabled: false

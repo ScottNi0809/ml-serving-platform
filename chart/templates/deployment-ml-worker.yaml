@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ml-serving-platform.fullname" . }}-ml-worker
+  labels:
+    {{- include "ml-serving-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ml-worker
+spec:
+  {{- if not (and .Values.autoscaling.enabled .Values.autoscaling.mlWorker.enabled) }}
+  replicas: {{ .Values.mlWorker.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "ml-serving-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ml-worker
+  template:
+    metadata:
+      labels:
+        {{- include "ml-serving-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ml-worker
+    spec:
+      containers:
+        - name: ml-worker
+          image: "{{ include "ml-serving-platform.image" (list . .Values.mlWorker.image) }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["uvicorn", "serving.app:app", "--host", "0.0.0.0", "--port", "{{ .Values.mlWorker.port }}", "--no-access-log"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.mlWorker.port }}
+              protocol: TCP
+          env:
+            - name: APP_ENV
+              value: {{ .Values.mlWorker.env.APP_ENV | quote }}
+            - name: REGISTRY_URL
+              value: "http://{{ include "ml-serving-platform.fullname" . }}-registry:{{ .Values.registry.port }}"
+          resources:
+            {{- toYaml .Values.mlWorker.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
