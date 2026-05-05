@@ -32,11 +32,58 @@ jobs:
         run: |
           pytest tests/ -v --tb=short
 
-  # 可选：验证 Docker 构建
+  # Helm chart 和 K8s manifest 校验
+  helm-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.4
+
+      - name: Helm lint (dev)
+        run: helm lint chart/ -f chart/values-dev.yaml
+
+      - name: Helm lint (prod)
+        run: helm lint chart/ -f chart/values-prod.yaml
+
+      - name: Helm template (dev)
+        run: helm template dev chart/ -f chart/values-dev.yaml > /tmp/rendered-dev.yaml
+
+      - name: Helm template (prod)
+        run: helm template prod chart/ -f chart/values-prod.yaml > /tmp/rendered-prod.yaml
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.6/kubeconform-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin
+
+      - name: Validate rendered manifests (dev)
+        run: |
+          kubeconform -strict -summary \
+            -kubernetes-version 1.30.0 \
+            /tmp/rendered-dev.yaml
+
+      - name: Validate rendered manifests (prod)
+        run: |
+          kubeconform -strict -summary \
+            -kubernetes-version 1.30.0 \
+            /tmp/rendered-prod.yaml
+
+      - name: Validate raw k8s manifests
+        run: |
+          kubeconform -strict -summary \
+            -kubernetes-version 1.30.0 \
+            k8s/
+
+  # Docker 构建验证
   docker-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15              # Docker 构建可能较慢，给 15 分钟
-    needs: test  # 测试通过后才构建
+    timeout-minutes: 15
+    needs: [test, helm-validate]  # 测试和校验都通过后才构建
     steps:
       - uses: actions/checkout@v4
       
