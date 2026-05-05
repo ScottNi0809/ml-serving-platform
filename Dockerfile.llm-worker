@@ -31,6 +31,9 @@ COPY --from=builder /install /usr/local
 
 WORKDIR /app
 COPY serving/ ./serving/
+COPY shared/ ./shared/
+
+ENV PYTHONPATH=/app
 
 RUN chown -R appuser:appuser /app
 USER appuser
