@@ -30,6 +30,8 @@ spec:
               value: "2048"
             - name: GPU_MEMORY_UTILIZATION
               value: "0.85"
+            - name: HF_HOME
+              value: "/app/models"
             - name: HF_ENDPOINT
               value: "https://hf-mirror.com"
           resources:
@@ -61,8 +63,8 @@ spec:
             failureThreshold: 3
           volumeMounts:
             - name: model-cache
-              mountPath: /root/.cache/huggingface
+              mountPath: /app/models
       volumes:
         - name: model-cache
-          PersistentVolumeClaim:
+          persistentVolumeClaim:
             claimName: model-cache-pvc

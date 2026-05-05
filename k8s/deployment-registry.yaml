@@ -27,6 +27,11 @@ spec:
           envFrom:
             - configMapRef:
                 name: registry-config  # 引用 ConfigMap 名称
+          volumeMounts:
+            - name: registry-data
+              mountPath: /app/data
+            - name: model-store
+              mountPath: /app/model_store
           resources:
             requests:
               cpu: "100m"
@@ -48,3 +53,10 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 3
+      volumes:
+        - name: registry-data
+          persistentVolumeClaim:
+            claimName: registry-data-pvc
+        - name: model-store
+          persistentVolumeClaim:
+            claimName: model-store-pvc

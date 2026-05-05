@@ -10,4 +10,4 @@ data:                                 # ★ 所有配置项都写在 data 下面
   APP_ENV: "production"
   DATABASE_URL: "sqlite:///./data/registry.db"
   MODEL_STORE_PATH: "./model_store"
-  LOG_LEVEL: "info"
+  LOG_LEVEL: "INFO"

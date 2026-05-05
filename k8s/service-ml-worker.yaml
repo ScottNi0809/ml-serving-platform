@@ -1,0 +1,16 @@
+# service-ml-worker.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-worker
+  labels:
+    app: ml-worker
+spec:
+  type: ClusterIP
+  selector:
+    app: ml-worker
+  ports:
+    - port: 8001
+      targetPort: 8001
+      protocol: TCP
+      name: http

@@ -1,0 +1,53 @@
+# deployment-ml-worker.yaml
+# Classic model serving worker for sklearn/joblib models on port 8001.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-worker
+  labels:
+    app: ml-worker
+    component: inference-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ml-worker
+  template:
+    metadata:
+      labels:
+        app: ml-worker
+        component: inference-worker
+    spec:
+      containers:
+        - name: ml-worker
+          image: ml-serving:v1
+          imagePullPolicy: Never
+          command: ["uvicorn", "serving.app:app", "--host", "0.0.0.0", "--port", "8001", "--no-access-log"]
+          ports:
+            - containerPort: 8001
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: REGISTRY_URL
+              value: "http://registry:8000"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
