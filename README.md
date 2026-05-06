@@ -1,171 +1,194 @@
 # ML Model Serving Platform
 
+[![中文文档](https://img.shields.io/badge/lang-中文-red)](README.zh-CN.md)
+
 ![CI](https://github.com/ScottNi0809/ml-serving-platform/actions/workflows/ci.yml/badge.svg)
 
-A production-grade ML model serving platform — from model registration to real-time LLM inference with A/B routing, streaming output, and GPU containerization.
+An AI infrastructure portfolio project that turns trained ML and LLM models into versioned, observable, containerized inference services. It covers the production-serving path from model registry and worker routing to A/B rollout, rollback, vLLM proxying, SSE streaming, Prometheus/Grafana monitoring, load testing, and Kubernetes deployment templates.
 
-**Key features:** Model registry & versioning · Weighted A/B traffic routing with one-click rollback · vLLM integration via thin HTTP proxy · SSE streaming through full proxy chain · GPU Docker containers with multi-stage builds
+**Core capabilities:** Model registry and versioning · sklearn inference worker · Gateway routing · Weighted A/B traffic splitting · One-click rollback · vLLM-backed chat completions · End-to-end SSE streaming · Docker/GPU containers · Prometheus/Grafana · Helm/K8s manifests
+
+### Quick Links
+
+| Resource | Path |
+|----------|------|
+| End-to-end demo | [docs/demo.md](docs/demo.md) |
+| Benchmark report | [docs/benchmark.md](docs/benchmark.md) |
+| Helm chart | [chart/](chart/) |
+| CI pipeline | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
+| Grafana dashboard | [monitoring/grafana/](monitoring/grafana/) |
+
+### Run Modes
+
+| Mode | Command | What it starts |
+|------|---------|----------------|
+| CPU | `docker compose up --build -d` | Registry, ML Worker, Gateway |
+| Monitoring | `docker compose -f docker-compose.yml -f docker-compose.monitor.yml up --build -d` | + Prometheus, Grafana |
+| GPU / LLM | `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d` | + LLM Worker, vLLM (requires NVIDIA GPU) |
+
+---
+
+## Why This Project
+
+This project is built as a backend-to-AI-infra transition case study. It focuses on problems AI infrastructure teams actually own: safely shipping model versions, routing inference traffic, isolating GPU-backed LLM serving behind a stable API, measuring latency and errors, and preparing services for container orchestration.
+
+Resume-ready proof points:
+
+| Area | Evidence |
+|------|----------|
+| End-to-end serving | Registry -> ML Worker -> Gateway prediction path with versioned sklearn models |
+| Safe rollout | Dynamic A/B route configuration, weighted selection, and rollback history |
+| Real LLM serving | vLLM OpenAI-compatible backend behind a thin LLM Worker proxy |
+| Streaming | SSE chunks flow through vLLM -> LLM Worker -> Gateway -> client without buffering |
+| Observability | Prometheus HTTP/inference metrics, Grafana dashboard, alert rules |
+| Performance | Locust benchmark reaches ~454 RPS at 200 concurrent users with 0% errors |
+| Deployment | Docker Compose for CPU/GPU stacks, Helm chart with HPA, Ingress, PVC, GPU scheduling templates |
+| Quality gates | pytest, Docker build validation, Helm lint/template, kubeconform in GitHub Actions |
 
 ---
 
 ## Architecture
 
-```
+```text
 ┌──────────┐
 │  Client  │
-│(curl/UI) │
+│ curl/API │
 └────┬─────┘
      │
      ▼
 ┌──────────────────────────────────────────┐
-│           Gateway  :8002                 │
-│  ┌─────────────┐  ┌──────────────────┐   │
-│  │ ML Routing   │  │ LLM Routing     │   │
-│  │ A/B Testing  │  │ SSE Streaming   │   │
-│  │ Rollback     │  │ Chat Forwarding │   │
-│  └──────┬──────┘  └───────┬──────────┘   │
-└─────────┼──────────────────┼─────────────┘
-          │                  │
-     ┌────▼────┐       ┌────▼──────┐     ┌───────────┐
-     │ML Worker│       │LLM Worker │────▶│   vLLM    │
-     │  :8001  │       │   :8003   │     │   :8100   │
-     │ sklearn │       │ HTTP Proxy│     │Qwen2.5-1.5B│
-     └─────────┘       └───────────┘     │   (GPU)   │
-                                         └───────────┘
-     ┌─────────┐
-     │Registry │
-     │  :8000  │
-     │ SQLite  │
-     │ + Files │
-     └─────────┘
+│              Gateway :8002               │
+│  ┌───────────────┐  ┌─────────────────┐  │
+│  │ ML Routing    │  │ LLM Routing     │  │
+│  │ A/B Testing   │  │ SSE Streaming   │  │
+│  │ Rollback      │  │ Chat Forwarding │  │
+│  └───────┬───────┘  └───────┬─────────┘  │
+└──────────┼───────────────────┼───────────┘
+           │                   │
+      ┌────▼────┐       ┌──────▼──────┐     ┌───────────┐
+      │ML Worker│       │ LLM Worker  │────▶│   vLLM    │
+      │  :8001  │       │   :8003     │     │   :8100   │
+      │ sklearn │       │ HTTP Proxy  │     │ Qwen 1.5B │
+      └─────────┘       └─────────────┘     │   GPU     │
+                                            └───────────┘
+      ┌─────────┐
+      │Registry │
+      │  :8000  │
+      │ SQLite  │
+      │ + Files │
+      └─────────┘
+
+      Prometheus :9090  +  Grafana :3000
 ```
 
-| Component       | Description                                        | Status      |
-|-----------------|----------------------------------------------------|-------------|
-| **Registry**    | Model metadata, version management, file storage   | ✅ Complete |
-| **ML Worker**   | sklearn model loading + in-process inference       | ✅ Complete |
-| **Gateway**     | Request routing, A/B traffic splitting, rollback   | ✅ Complete |
-| **LLM Worker**  | vLLM HTTP proxy with streaming support             | ✅ Complete |
-| **vLLM Engine** | GPU inference backend (Qwen2.5-1.5B-Instruct)     | ✅ Complete |
-| **CI/CD**       | GitHub Actions: pytest + Docker build verification | ✅ Complete |
-| **Monitoring**  | Prometheus + Grafana observability                 | ✅ Complete  |
-| **K8s Deploy**  | Helm chart + HPA + GPU scheduling                  | 🔲 Planned  |
+| Component | Description | Status |
+|-----------|-------------|--------|
+| **Registry** | Model metadata, semantic versions, default version, file upload/download | Complete |
+| **ML Worker** | sklearn model loading, in-process prediction, model unload/list APIs | Complete |
+| **Gateway** | Worker registration, route lookup, prediction forwarding, health checks | Complete |
+| **A/B Router** | Weighted backend selection, dynamic rollout config, rollback history | Complete |
+| **LLM Worker** | Thin HTTP proxy to vLLM with custom timeout/connection/error mapping | Complete |
+| **vLLM Engine** | GPU container for Qwen2.5-1.5B-Instruct via OpenAI-compatible API | Complete |
+| **Monitoring** | Prometheus middleware, inference metrics, Grafana dashboard, alerts | Complete |
+| **CI/CD** | pytest, Docker build, Helm lint/template, kubeconform validation | Complete |
+| **K8s/Helm** | Deployments, Services, PVCs, HPA, Ingress, GPU resource templates | Production-style templates |
 
 ---
 
 ## Quick Start
 
+### CPU Stack
+
 ```bash
-# Local development
-pip install -r requirements.txt
-uvicorn registry.app:app --reload --port 8000   # Registry
-uvicorn serving.app:app --reload --port 8001     # ML Worker
-uvicorn serving.gateway_app:app --reload --port 8002  # Gateway
+# Start Registry, ML Worker, and Gateway
+docker compose up --build -d
 
-# Docker (CPU services)
-docker compose up -d
-
-# Docker (full stack with GPU)
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+# Run the end-to-end CPU demo
+bash scripts/demo.sh
 
 # Run tests
 pytest tests/ -v
 ```
 
-> **Swagger UI** available at `http://localhost:8000/docs`, `http://localhost:8001/docs`, `http://localhost:8002/docs`
+Services:
+
+| Service | URL |
+|---------|-----|
+| Registry | http://localhost:8000 |
+| ML Worker | http://localhost:8001 |
+| Gateway | http://localhost:8002 |
+| Swagger UI | http://localhost:8000/docs, http://localhost:8001/docs, http://localhost:8002/docs |
+
+### Monitoring Stack
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.monitor.yml up --build -d
+bash scripts/demo.sh
+```
+
+Then open:
+
+| Tool | URL | Default login |
+|------|-----|---------------|
+| Prometheus | http://localhost:9090 | none |
+| Grafana | http://localhost:3000 | admin / admin |
+
+### GPU / LLM Stack
+
+Requires NVIDIA Container Toolkit and a GPU with enough VRAM for the configured model.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d
+RUN_GPU_DEMO=1 bash scripts/demo.sh
+```
+
+The GPU stack adds:
+
+| Service | URL |
+|---------|-----|
+| LLM Worker | http://localhost:8003 |
+| vLLM | http://localhost:8100 |
+
+Full demo notes are in [docs/demo.md](docs/demo.md).
 
 ---
 
-## Quick Demo
+## Demo Flow
 
-<details>
-<summary><b>1. Register a model and run prediction</b></summary>
+The runnable demo script covers the resume-facing CPU path:
 
-```bash
-GATEWAY="http://localhost:8002/api/v1/gateway"
-
-# Register worker in Gateway
-curl -X POST "$GATEWAY/register" \
-  -H "Content-Type: application/json" \
-  -d '{"model_name": "iris-classifier", "version": "v1", "worker_url": "http://serving:8001"}'
-
-# Run prediction through Gateway
-curl -X POST "$GATEWAY/predict/iris-classifier/v1" \
-  -H "Content-Type: application/json" \
-  -d '{"inputs": [[5.1, 3.5, 1.4, 0.2]]}'
-# → {"prediction": [0], "model": "iris-classifier", "version": "v1"}
-```
-</details>
-
-<details>
-<summary><b>2. Configure A/B testing with rollback</b></summary>
+1. Verify Registry, ML Worker, and Gateway health.
+2. Train or reuse a local Iris sklearn model artifact.
+3. Register `iris-classifier` in the Registry and create versions `1.0.0` and `2.0.0`.
+4. Upload the model artifact to Registry metadata/file storage.
+5. Load both versions into the ML Worker.
+6. Register both worker routes in the Gateway.
+7. Send prediction traffic through the Gateway.
+8. Configure 90/10 A/B routing and show routed responses.
+9. Roll back to version `1.0.0` and print rollback history.
+10. Optionally register the LLM worker and call non-streaming plus streaming chat.
 
 ```bash
-# Set 90/10 traffic split between v1 and v2
-curl -X POST "$GATEWAY/ab/configure" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_name": "iris-classifier",
-    "backends": [
-      {"version": "v1", "weight": 90, "worker_url": "http://serving:8001"},
-      {"version": "v2", "weight": 10, "worker_url": "http://serving:8001"}
-    ]
-  }'
-
-# Predict — Gateway automatically routes by weight
-curl -X POST "$GATEWAY/ab/predict/iris-classifier" \
-  -H "Content-Type: application/json" \
-  -d '{"inputs": [[5.1, 3.5, 1.4, 0.2]]}'
-# → {"prediction": [0], "_routed_to": {"version": "v1", ...}}
-
-# One-click rollback: send 100% traffic to v1
-curl -X POST "$GATEWAY/ab/rollback/iris-classifier" \
-  -H "Content-Type: application/json" \
-  -d '{"target_version": "v1", "reason": "v2 accuracy regression"}'
+bash scripts/demo.sh
 ```
-</details>
 
-<details>
-<summary><b>3. Chat with LLM — streaming & non-streaming (requires GPU)</b></summary>
-
-```bash
-# Register LLM worker
-curl -X POST "$GATEWAY/register" \
-  -H "Content-Type: application/json" \
-  -d '{"model_name": "qwen2.5-1.5b", "version": "v1", "worker_url": "http://llm-worker:8003"}'
-
-# Non-streaming chat
-curl -X POST "$GATEWAY/chat/qwen2.5-1.5b/v1" \
-  -H "Content-Type: application/json" \
-  -d '{"messages": [{"role": "user", "content": "What is Docker?"}], "max_tokens": 100}'
-
-# Streaming chat (SSE) — tokens arrive incrementally
-curl -N "$GATEWAY/chat/qwen2.5-1.5b/v1/stream" \
-  -H "Content-Type: application/json" \
-  -d '{"messages": [{"role": "user", "content": "Explain KV Cache in 3 sentences"}], "max_tokens": 150}'
-# → data: {"choices": [{"delta": {"content": "KV"}}]}
-# → data: {"choices": [{"delta": {"content": " Cache"}}]}
-# → ...
-# → data: [DONE]
-```
-</details>
+The demo is intentionally CPU-first so it can be run quickly by reviewers without a GPU. The LLM path is enabled separately with `RUN_GPU_DEMO=1`.
 
 ---
 
-## Monitoring Dashboard Demo（Prometheus + Grafana）
+## Monitoring
 
-I built an observability dashboard for the ML Serving Platform using Prometheus and Grafana, covering the Four Golden Signals and validated through real traffic load testing.
+The platform exposes service and inference metrics through Prometheus middleware:
 
-In this demo, I intentionally created a traffic pattern with two load bursts separated by an idle window. The dashboard clearly shows:
+| Metric | Type | Purpose |
+|--------|------|---------|
+| `http_requests_total` | Counter | Request volume by service, method, endpoint, status |
+| `http_request_duration_seconds` | Histogram | HTTP latency distribution by service and endpoint |
+| `http_active_requests` | Gauge | Current in-flight requests by service |
+| `inference_requests_total` | Counter | Gateway inference forwarding outcomes by model/version/status |
+| `inference_duration_seconds` | Histogram | End-to-end Gateway -> Worker inference latency |
 
-- QPS peaks, troughs, and recovery (visible traffic dynamics)
-- Endpoint-level traffic distribution (gateway routing behavior)
-- P50/P95/P99 latency percentiles (performance stability)
-- 5xx error rate (currently stable at 0)
-- Service health (gateway/serving remain UP)
-- Active requests (real-time concurrency visibility)
-
-Tech stack：FastAPI + prometheus-client + Prometheus + Grafana + Docker Compose
+Alert rules cover high 5xx error rate, scrape target downtime, P95 latency spikes, throughput drops, and high active request saturation.
 
 ![Grafana Dashboard Demo](./demo/grafana-dashboard.png)
 
@@ -173,74 +196,88 @@ Tech stack：FastAPI + prometheus-client + Prometheus + Grafana + Docker Compose
 
 ## Performance
 
-Benchmark results from load testing with [Locust](https://locust.io/) ([full report](docs/benchmark.md)):
+Benchmark results from Locust load testing are documented in [docs/benchmark.md](docs/benchmark.md).
 
-| Metric | Value |
-|--------|-------|
-| Throughput (50 users) | ~121 RPS |
-| P50 Latency | 5ms |
-| P95 Latency | 11ms |
-| P99 Latency | 18ms |
-| Error Rate | 0% |
+| Concurrent Users | Total RPS | P50 | P95 | P99 | Error Rate |
+|------------------|-----------|-----|-----|-----|------------|
+| 10 | 23.88 | 5ms | 9ms | 16ms | 0% |
+| 50 | 120.79 | 5ms | 11ms | 18ms | 0% |
+| 100 | 239.00 | 4ms | 12ms | 22ms | 0% |
+| 200 | 453.77 | 4ms | 17ms | 30ms | 0% |
 
-> Scales near-linearly to 200 concurrent users (454 RPS) with 0% error rate.
+Observed bottleneck: SQLite write contention plus a single Uvicorn worker affects write-heavy model registration latency first. This is why PostgreSQL and connection pooling are the next production-hardening step.
 
 ---
 
-## Key Design Decisions
+## Kubernetes And Helm
 
-| Decision | Choice | Why |
-|----------|--------|-----|
-| Architecture | 4 microservices + vLLM | Different scaling profiles: Registry is low-frequency, ML Worker is CPU-bound, LLM Worker is I/O-bound, vLLM is GPU-bound |
-| LLM integration | Thin HTTP proxy | Decouples Gateway from vLLM specifics; swap to TensorRT-LLM or Triton without touching Gateway |
-| Traffic management | Weighted A/B routing | Gradual rollout (90/10 → 50/50) with rollback history, not binary blue-green |
-| Streaming | SSE end-to-end | `async for` + `yield` at every layer; zero buffering from vLLM to client |
-| Error mapping | Custom exceptions | `VLLMConnectionError` → 503, `VLLMTimeoutError` → 504, `VLLMResponseError` → 502 |
-| Storage | Local FS + S3 interface | Abstract `StorageBackend` base; production swap = config change |
-| Database | SQLite | Zero-dependency dev; schema portable to PostgreSQL |
+The chart deploys Registry, ML Worker, Gateway, optional LLM Worker, and optional vLLM. It includes resource requests/limits, PVCs, HPA templates, Ingress, and GPU resource limits for vLLM.
+
+> **`chart/` vs `k8s/`:** The `chart/` directory is the Helm chart (templated, parameterized). The `k8s/` directory contains plain Kubernetes manifests for quick `kubectl apply` without Helm.
+
+```bash
+# Local/minikube-style rendering
+helm lint chart/ -f chart/values-dev.yaml
+helm template ml-dev chart/ -f chart/values-dev.yaml
+
+# Production-style rendering
+helm lint chart/ -f chart/values-prod.yaml
+helm template ml-prod chart/ -f chart/values-prod.yaml
+```
+
+Important production notes:
+
+- `registry.persistence` uses PVCs for SQLite data and model files in the default chart.
+- Registry HPA is disabled in `values-prod.yaml` because SQLite on a ReadWriteOnce PVC is not HA storage.
+- Enable Registry horizontal scaling only after moving metadata to PostgreSQL and artifacts to S3/MinIO-compatible storage.
+- vLLM GPU scheduling requires NVIDIA Device Plugin on the cluster.
+- Ingress TLS requires a pre-created certificate secret or cert-manager integration.
 
 ---
 
 ## API Reference
 
-> All Registry endpoints (except `/health`) require `X-API-Key` header: `-H "X-API-Key: dev-api-key"`
+Registry endpoints require `X-API-Key`. The development default accepts `dev-api-key` for local demos.
 
 <details>
-<summary><b>Registry — Models & Versions</b></summary>
+<summary><b>Registry - Models & Versions</b></summary>
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST   | `/api/v1/models` | Register a new model |
-| GET    | `/api/v1/models` | List all models (with filtering) |
-| GET    | `/api/v1/models/{name}` | Get model details |
-| PATCH  | `/api/v1/models/{name}` | Update model metadata |
-| DELETE | `/api/v1/models/{name}` | Delete model and all versions |
-| POST   | `/api/v1/models/{name}/versions` | Create a new version |
-| GET    | `/api/v1/models/{name}/versions` | List all versions |
-| GET    | `/api/v1/models/{name}/versions/{ver}` | Get version details |
-| POST   | `/api/v1/models/{name}/versions/{ver}/upload` | Upload model file |
-| PUT    | `/api/v1/models/{name}/versions/{ver}/default` | Set as default version |
+| POST | `/api/v1/models` | Register a model |
+| GET | `/api/v1/models` | List models |
+| GET | `/api/v1/models/{name}` | Get model details |
+| PATCH | `/api/v1/models/{name}` | Update model metadata |
+| DELETE | `/api/v1/models/{name}` | Delete model and versions |
+| POST | `/api/v1/models/{name}/versions` | Create a version |
+| GET | `/api/v1/models/{name}/versions` | List versions |
+| GET | `/api/v1/models/{name}/versions/{ver}` | Get version details |
+| POST | `/api/v1/models/{name}/versions/{ver}/upload` | Upload model artifact |
+| GET | `/api/v1/models/{name}/versions/{ver}/download` | Download model artifact |
+| PUT | `/api/v1/models/{name}/versions/{ver}/default` | Set default version |
+
 </details>
 
 <details>
-<summary><b>Gateway — Routing, A/B Testing & LLM</b></summary>
+<summary><b>Gateway - Routing, A/B Testing & LLM</b></summary>
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST   | `/api/v1/gateway/register` | Register a worker |
-| DELETE | `/api/v1/gateway/routes/{model}/{version}` | Remove a worker |
-| GET    | `/api/v1/gateway/routes` | List all routes |
-| POST   | `/api/v1/gateway/predict/{model}/{version}` | Forward prediction |
-| POST   | `/api/v1/gateway/chat/{model}/{version}` | Forward LLM chat |
-| POST   | `/api/v1/gateway/chat/{model}/{version}/stream` | Forward LLM chat (SSE) |
-| POST   | `/api/v1/gateway/ab/configure` | Set A/B routing weights |
-| POST   | `/api/v1/gateway/ab/predict/{model}` | Predict with A/B routing |
-| POST   | `/api/v1/gateway/ab/rollback/{model}` | One-click rollback |
-| GET    | `/api/v1/gateway/ab` | List all A/B configs |
-| GET    | `/api/v1/gateway/ab/{model}` | Get A/B config |
+| POST | `/api/v1/gateway/register` | Register a worker route |
+| DELETE | `/api/v1/gateway/routes/{model}/{version}` | Remove a worker route |
+| GET | `/api/v1/gateway/routes` | List routes |
+| POST | `/api/v1/gateway/predict/{model}/{version}` | Forward ML prediction |
+| POST | `/api/v1/gateway/chat/{model}/{version}` | Forward LLM chat |
+| POST | `/api/v1/gateway/chat/{model}/{version}/stream` | Forward LLM chat as SSE |
+| POST | `/api/v1/gateway/ab/configure` | Configure weighted A/B routing |
+| POST | `/api/v1/gateway/ab/predict/{model}` | Predict through A/B router |
+| POST | `/api/v1/gateway/ab/rollback/{model}` | Shift 100% traffic to one version |
+| GET | `/api/v1/gateway/ab` | List A/B configs |
+| GET | `/api/v1/gateway/ab/{model}` | Get A/B config |
 | DELETE | `/api/v1/gateway/ab/{model}` | Remove A/B config |
-| GET    | `/api/v1/gateway/ab/rollback-history/{model}` | View rollback history |
-| GET    | `/api/v1/gateway/health/{model}/{version}` | Check worker health |
+| GET | `/api/v1/gateway/ab/rollback-history/{model}` | View rollback history |
+| GET | `/api/v1/gateway/health/{model}/{version}` | Check registered worker health |
+
 </details>
 
 <details>
@@ -248,44 +285,74 @@ Benchmark results from load testing with [Locust](https://locust.io/) ([full rep
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET    | `/health` | Health check (includes vLLM backend status) |
-| POST   | `/api/v1/chat/completions` | Chat completion (stream or non-stream) |
+| GET | `/health` | Health check including vLLM backend status |
+| POST | `/api/v1/chat/completions` | Chat completion, streaming or non-streaming |
+
 </details>
+
+---
+
+## Key Design Decisions
+
+| Decision | Choice | Why |
+|----------|--------|-----|
+| Service split | Registry, ML Worker, Gateway, LLM Worker, vLLM | Different state, scaling, and hardware profiles |
+| LLM integration | Thin HTTP proxy over vLLM OpenAI API | Gateway stays independent from engine-specific details |
+| Rollout model | Weighted A/B routing with rollback history | Supports gradual rollout and quick recovery |
+| Streaming | SSE end-to-end | Simple client support and incremental token delivery |
+| Error mapping | 503 connection, 504 timeout, 502 backend response | Makes infrastructure failure modes visible to callers |
+| Observability | Prometheus middleware plus Grafana dashboard | Captures traffic, latency, errors, saturation |
+| Local database | SQLite | Zero-dependency development path; explicit PostgreSQL next step |
+| Artifact storage | Local FS abstraction with S3 extension point | Keeps local demo simple while preserving production direction |
 
 ---
 
 ## CI/CD
 
-GitHub Actions runs on every push and PR ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
+GitHub Actions runs on every push and pull request through [.github/workflows/ci.yml](.github/workflows/ci.yml):
 
-- **Test** — `pytest tests/ -v` on Python 3.11 with pip caching
-- **Docker Build** — validates `Dockerfile.registry` builds successfully
-- **Concurrency** — auto-cancels stale runs on the same branch
+- `pytest tests/ -v` on Python 3.11 with pip caching.
+- Helm lint and template validation for dev/prod values.
+- kubeconform validation for rendered and raw Kubernetes manifests.
+- Docker build validation for the Registry image.
+- Concurrency cancellation for stale workflow runs on the same branch.
 
 ---
 
 ## Roadmap
 
-- [x] **Phase 1** — Model Registry: metadata CRUD + version management + file storage
-- [x] **Phase 2** — Serving: sklearn model loading + Gateway request routing
-- [x] **Phase 3** — A/B Testing: weighted traffic splitting + one-click rollback
-- [x] **Phase 4** — LLM Integration: vLLM backend + streaming output + GPU containers
-- [ ] **Phase 5** — Monitoring: Prometheus metrics + Grafana dashboards
-- [ ] **Phase 6** — K8s Deployment: Helm chart + HPA + GPU scheduling
+- [x] **Phase 1** - Model Registry: metadata CRUD, versions, default version, file storage
+- [x] **Phase 2** - Serving: sklearn loading, prediction, Gateway routing
+- [x] **Phase 3** - Traffic Management: weighted A/B split, rollback, history
+- [x] **Phase 4** - LLM Integration: vLLM backend, LLM proxy, streaming output, GPU containers
+- [x] **Phase 5** - Observability: Prometheus metrics, Grafana dashboard, alert rules, benchmark report
+- [x] **Phase 6** - Deployment Templates: Docker Compose, Helm chart, HPA, Ingress, GPU scheduling templates
+- [ ] **Next** - PostgreSQL metadata store, Redis cache, OpenTelemetry tracing, S3/MinIO artifact backend, rate limiting, vLLM circuit breaker
+
+---
+
+## Production Boundaries
+
+This repository is intentionally optimized for local reproducibility and interview discussion. The current defaults are enough to demonstrate system design and serving workflows, but these changes are recommended before a real production deployment:
+
+| Boundary | Current state | Production direction |
+|----------|---------------|----------------------|
+| Registry metadata | SQLite | PostgreSQL with migrations and connection pooling |
+| Model artifacts | Local filesystem | S3/MinIO-compatible object storage |
+| Registry scaling | Single writer, HPA disabled in prod values | Enable after HA metadata/artifact storage is introduced |
+| Authentication | Development API key | External secret management, scoped keys or JWT/RBAC |
+| Tracing | Metrics and logs only | OpenTelemetry spans across Gateway, Worker, and vLLM |
+| Resilience | Explicit vLLM error mapping | Retry budget, circuit breaker, backpressure/rate limiting |
 
 ---
 
 ## What I Learned
 
-I built this project as part of my transition from C# backend engineering (DevProd / Build Infrastructure) to AI Infrastructure. Key lessons:
-
-1. **LLM serving ≠ traditional ML serving.** sklearn prediction is microsecond-level CPU math; LLM generation is seconds-long GPU autoregression. This 1000x latency gap drives every architectural decision — streaming, timeouts, error handling.
-
-2. **The thin proxy pattern pays off.** Keeping LLM Worker as a pure HTTP proxy means Gateway is completely unaware of vLLM internals (tokenization, KV Cache, model weights). A/B routing between sklearn and LLM models works with zero Gateway code changes.
-
-3. **GPU containerization has sharp edges.** NVIDIA Container Toolkit compatibility, 15GB+ base images, 10-minute health check start periods for model loading — none of this is in Docker's getting started guide.
-
-4. **SSE through a proxy chain is harder than it looks.** Each layer (vLLM → LLM Worker → Gateway → Client) needs `async for` + `yield`, `Transfer-Encoding: chunked`, and `X-Accel-Buffering: no`. One synchronous read anywhere in the chain defeats streaming entirely.
+1. **LLM serving is a different latency class from classic ML serving.** sklearn prediction is millisecond-level CPU work; LLM generation is GPU-bound autoregressive decoding. That difference drives streaming, timeout, and observability design.
+2. **A thin proxy keeps infrastructure flexible.** The Gateway does not need to know vLLM tokenization or scheduler details, so the backend can later move to TensorRT-LLM, Triton, or another engine.
+3. **Safe rollout is an infrastructure feature.** A/B routing and rollback are not product polish; they are how model teams ship new versions without turning every release into a flag day.
+4. **Observability turns a demo into an engineering system.** QPS, latency percentiles, 5xx rate, and active requests make performance and failure modes discussable with concrete evidence.
+5. **Kubernetes support is more than YAML.** HPA, PVCs, GPU scheduling, ingress, and storage caveats all have to line up with the actual state model.
 
 ---
 
@@ -295,13 +362,16 @@ I built this project as part of my transition from C# backend engineering (DevPr
 |-------|------------|
 | API Framework | FastAPI |
 | Data Validation | Pydantic v2 |
-| Database | SQLite (→ PostgreSQL) |
-| Model Storage | Local FS (→ S3-compatible) |
-| Containerization | Docker + Docker Compose |
-| Testing | pytest |
+| Metadata Store | SQLite local default, PostgreSQL planned |
+| Model Storage | Local FS default, S3/MinIO planned |
+| Classic ML | scikit-learn, joblib |
 | LLM Inference | vLLM |
-| Monitoring | Prometheus + Grafana (Planned) |
-| Orchestration | Kubernetes (Planned) |
+| Streaming | Server-Sent Events |
+| Observability | prometheus-client, Prometheus, Grafana |
+| Load Testing | Locust |
+| Containerization | Docker, Docker Compose, NVIDIA runtime |
+| Orchestration | Kubernetes manifests, Helm |
+| Testing | pytest, httpx ASGITransport |
 
 ## License
 
