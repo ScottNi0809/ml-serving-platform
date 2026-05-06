@@ -174,7 +174,7 @@ async def gateway_predict(
             model_name=model_name,
             version=version,
             status="not_found",
-        )
+        ).inc()
         raise HTTPException(
             status_code=404,
             detail=str(e),
@@ -184,7 +184,7 @@ async def gateway_predict(
             model_name=model_name,
             version=version,
             status="error",
-        )
+        ).inc()
         raise HTTPException(
             status_code=502,
             detail=f"Failed to forward request to worker: {e}",

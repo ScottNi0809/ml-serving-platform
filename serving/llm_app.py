@@ -111,7 +111,7 @@ async def chat_completions(body: ChatCompletionRequest):
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
-                "X-Access-Buffering": "no", # 禁用Nginx缓冲
+                "X-Accel-Buffering": "no", # 禁用Nginx的缓冲
             }
         )
 
