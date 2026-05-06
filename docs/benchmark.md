@@ -1,5 +1,7 @@
 # Performance Benchmark Report
 
+[![中文文档](https://img.shields.io/badge/lang-中文-red)](benchmark.zh-CN.md)
+
 > Last updated: 2026-04-21  
 > Test tool: Locust 2.x  
 > Environment: [DELL Precision 5570]
