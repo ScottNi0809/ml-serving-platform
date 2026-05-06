@@ -1,0 +1,9 @@
+*.joblib
+*.pkl
+*.pickle
+*.pt
+*.pth
+*.onnx
+*.bin
+!.gitignore
+
