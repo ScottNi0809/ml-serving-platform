@@ -17,7 +17,8 @@ The main demo walks through a production-style serving lifecycle:
 7. Send prediction traffic through the Gateway.
 8. Configure A/B routing.
 9. Roll back all traffic to a stable version.
-10. Inspect monitoring dashboards.
+10. Generate sustained traffic for monitoring visibility.
+11. Inspect monitoring dashboards.
 
 Optional GPU steps add vLLM-backed chat completions and SSE streaming.
 
@@ -63,7 +64,8 @@ Expected phases:
 === Phase 7: Predict Through Gateway ===
 === Phase 8: Configure A/B Routing ===
 === Phase 9: One-click Rollback ===
-=== Phase 10: Monitoring Pointers ===
+=== Phase 10: Traffic Simulation (30s for Monitoring) ===
+=== Phase 11: Monitoring Pointers ===
 ```
 
 The prediction response should include the model name, version, and predictions:

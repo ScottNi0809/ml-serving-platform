@@ -17,7 +17,8 @@
 7. 通过 Gateway 发送预测流量
 8. 配置 A/B 路由
 9. 将全部流量回滚到稳定版本
-10. 查看监控仪表盘
+10. 生成持续流量以填充监控面板
+11. 查看监控仪表盘
 
 可选 GPU 步骤添加 vLLM 支持的 Chat Completions 和 SSE 流式输出。
 
@@ -63,7 +64,8 @@ bash scripts/demo.sh
 === Phase 7: Predict Through Gateway ===
 === Phase 8: Configure A/B Routing ===
 === Phase 9: One-click Rollback ===
-=== Phase 10: Monitoring Pointers ===
+=== Phase 10: Traffic Simulation (30s for Monitoring) ===
+=== Phase 11: Monitoring Pointers ===
 ```
 
 预测响应应包含模型名称、版本和预测结果：

@@ -210,14 +210,38 @@ request_json -X POST "$GATEWAY_API/ab/rollback/$MODEL_NAME" \
 request_json "$GATEWAY_API/ab/$MODEL_NAME"
 request_json "$GATEWAY_API/ab/rollback-history/$MODEL_NAME"
 
-section "Phase 10: Monitoring Pointers"
+section "Phase 10: Traffic Simulation (30s for Monitoring)"
+echo "Sending sustained traffic so Prometheus/Grafana dashboards have visible data..."
+TRAFFIC_DURATION=${TRAFFIC_DURATION:-30}
+TRAFFIC_END=$((SECONDS + TRAFFIC_DURATION))
+TRAFFIC_COUNT=0
+
+while [ $SECONDS -lt $TRAFFIC_END ]; do
+  # Mix of direct predictions and A/B routed requests
+  curl -sS -o /dev/null -X POST "$GATEWAY_API/predict/$MODEL_NAME/$MODEL_V1" \
+    -H "Content-Type: application/json" \
+    -d '{"input":[[5.1,3.5,1.4,0.2]]}'
+  curl -sS -o /dev/null -X POST "$GATEWAY_API/predict/ab/$MODEL_NAME" \
+    -H "Content-Type: application/json" \
+    -d '{"input":[[6.2,3.4,5.4,2.3]]}'
+  curl -sS -o /dev/null -X POST "$GATEWAY_API/predict/$MODEL_NAME/$MODEL_V1" \
+    -H "Content-Type: application/json" \
+    -d '{"input":[[5.9,3.0,4.2,1.5]]}'
+  TRAFFIC_COUNT=$((TRAFFIC_COUNT + 3))
+  sleep 0.1
+done
+
+echo "Sent $TRAFFIC_COUNT requests in ${TRAFFIC_DURATION}s."
+echo "Wait a few seconds for Prometheus to scrape, then check Grafana."
+
+section "Phase 11: Monitoring Pointers"
 echo "Gateway metrics:    $GATEWAY_BASE/metrics"
 echo "ML Worker metrics:  $SERVING_BASE/metrics"
 echo "Prometheus:         http://localhost:9090"
 echo "Grafana:            http://localhost:3000 (admin/admin)"
 
 if [[ "${RUN_GPU_DEMO:-0}" == "1" ]]; then
-  section "Optional Phase 11: LLM Chat Via vLLM"
+  section "Optional Phase 12: LLM Chat Via vLLM"
   wait_for_url "LLM Worker" "$LLM_WORKER_BASE/health" 120
 
   request_json -X POST "$GATEWAY_API/register" \
@@ -229,11 +253,39 @@ if [[ "${RUN_GPU_DEMO:-0}" == "1" ]]; then
     -H "Content-Type: application/json" \
     -d '{"messages":[{"role":"user","content":"Explain KV Cache in two sentences."}],"max_tokens":120,"temperature":0.2}'
 
-  echo "Streaming chat:"
-  curl -N -X POST "$GATEWAY_API/chat/$LLM_MODEL_NAME/$LLM_MODEL_VERSION/stream" \
+  echo ""
+  echo "Streaming chat (token-by-token):"
+  echo -e "${YELLOW}> Explain continuous batching in three bullets.${NC}"
+  echo ""
+
+  # Stream and display tokens in real-time, then show raw SSE sample
+  STREAM_TMPFILE=$(mktemp)
+  curl -sS -N -X POST "$GATEWAY_API/chat/$LLM_MODEL_NAME/$LLM_MODEL_VERSION/stream" \
     -H "Content-Type: application/json" \
-    -d '{"messages":[{"role":"user","content":"Explain continuous batching in three bullets."}],"max_tokens":160,"temperature":0.2}'
-  echo
+    -d '{"messages":[{"role":"user","content":"Explain continuous batching in three bullets."}],"max_tokens":160,"temperature":0.2}' \
+    | tee "$STREAM_TMPFILE" \
+    | while IFS= read -r line; do
+        # Extract content field and print without newline for typewriter effect
+        if [[ "$line" == data:\ * ]]; then
+          json="${line#data: }"
+          if [[ "$json" == "[DONE]" ]]; then
+            break
+          fi
+          if [[ -n "$PYTHON_BIN" ]]; then
+            token=$("$PYTHON_BIN" -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('content',''),end='')" "$json" 2>/dev/null)
+            printf '%s' "$token"
+          fi
+        fi
+      done
+  echo ""
+  echo ""
+
+  # Show a few raw SSE lines as proof of protocol
+  echo -e "${GREEN}Raw SSE sample (first 5 events):${NC}"
+  grep '^data: {' "$STREAM_TMPFILE" | head -5
+  echo "..."
+  grep '^data: \[DONE\]' "$STREAM_TMPFILE" | head -1
+  rm -f "$STREAM_TMPFILE"
 else
   warn "Skipping GPU/LLM demo. Set RUN_GPU_DEMO=1 after starting docker-compose.gpu.yml to enable it."
 fi
